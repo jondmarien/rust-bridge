@@ -9,9 +9,18 @@ use anyhow::Result;
 // Module declarations
 mod python_manager;
 mod error;
+mod volatility;
+mod process_analysis;
+mod types;
 
 pub use error::{MemoryAnalysisError, MemoryAnalysisResult};
 pub use python_manager::PythonManager;
+pub use volatility::{VolatilityAnalyzer, VolatilityContext};
+pub use process_analysis::{ProcessAnalyzer, ProcessInfo, ProcessDetails, DllInfo, HandleInfo};
+pub use types::{
+    AnalysisResult, AnalysisMetadata, VersionInfo, PluginInfo, DumpMetadata,
+    KeyValue, PyConverter, JsonSerializable,
+};
 
 /// Initialize the Rust-Python bridge
 ///
@@ -33,14 +42,14 @@ pub fn initialize() -> Result<()> {
 
 /// Check if Volatility3 is available in the Python environment
 pub fn check_volatility_available() -> Result<bool> {
-    Python::initialize();
+    PythonManager::initialize()?;
     
-    let result = Python::attach(|py| {
+    let result = PythonManager::with_gil(|py| {
         match py.import("volatility3") {
-            Ok(_) => true,
-            Err(_) => false,
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
         }
-    });
+    })?;
     
     Ok(result)
 }
