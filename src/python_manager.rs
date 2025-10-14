@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
-use crate::error::{MemoryAnalysisError, MemoryAnalysisResult};
+
+use crate::error::{MemoryAnalysisResult};
 
 /// Manages the Python interpreter lifecycle
 ///
