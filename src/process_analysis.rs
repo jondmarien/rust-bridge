@@ -120,9 +120,9 @@ def run_pslist(dump_path):
     
     return results
 
-results = run_pslist('{}')
+results = run_pslist(r'{}')
 "#,
-                context.dump_path().replace("\\", "\\\\")
+                context.dump_path()
             );
 
             // Use exec to run the Python code
@@ -272,9 +272,9 @@ def run_cmdline(dump_path):
     
     return results
 
-results = run_cmdline('{}')
+results = run_cmdline(r'{}')
 "#,
-                context.dump_path().replace("\\", "\\\\")
+                context.dump_path()
             );
 
             // Use exec to run the Python code
@@ -396,10 +396,10 @@ def run_dlllist(dump_path, pid_filter=None):
     return results
 
 {}
-results = run_dlllist('{}', pid_filter)
+results = run_dlllist(r'{}', pid_filter)
 "#,
                 pid_filter_code,
-                context.dump_path().replace("\\", "\\\\")
+                context.dump_path()
             );
 
             // Use exec to run the Python code
@@ -529,9 +529,9 @@ def run_netscan(dump_path):
     
     return results
 
-results = run_netscan('{}')
+results = run_netscan(r'{}')
 "#,
-                context.dump_path().replace("\\", "\\\\")
+                context.dump_path()
             );
 
             // Use exec to run the Python code
@@ -637,9 +637,11 @@ results = run_netscan('{}')
             let python_code = format!(
                 r#"
 import sys
+import warnings
+warnings.filterwarnings('ignore')  # Suppress deprecation warnings
 from volatility3 import framework
 from volatility3.framework import contexts, plugins, automagic
-from volatility3.plugins.windows import malfind
+from volatility3.plugins.windows.malware import malfind
 
 def run_malfind(dump_path):
     # Create context
@@ -681,9 +683,9 @@ def run_malfind(dump_path):
     
     return results
 
-results = run_malfind('{}')
+results = run_malfind(r'{}')
 "#,
-                context.dump_path().replace("\\", "\\\\")
+                context.dump_path()
             );
 
             // Use exec to run the Python code
@@ -867,6 +869,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires actual memory dump file - run locally with test dumps
     fn test_list_processes_basic() {
         let analyzer = ProcessAnalyzer::new().unwrap();
 
@@ -883,6 +886,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires actual memory dump file - run locally with test dumps
     fn test_find_process_by_name() {
         let analyzer = ProcessAnalyzer::new().unwrap();
         let context = VolatilityContext {
@@ -897,6 +901,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires actual memory dump file - run locally with test dumps
     fn test_find_process_by_pid() {
         let analyzer = ProcessAnalyzer::new().unwrap();
         let context = VolatilityContext {
