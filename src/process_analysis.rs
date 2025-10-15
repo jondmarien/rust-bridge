@@ -3,11 +3,10 @@
 //! This module provides memory analysis functions specifically focused on
 //! process tree analysis, including process listing, command lines, handles, and DLLs.
 
-use crate::{MemoryAnalysisError, MemoryAnalysisResult, PythonManager};
 use crate::volatility::{VolatilityAnalyzer, VolatilityContext};
+use crate::{MemoryAnalysisError, MemoryAnalysisResult, PythonManager};
+use pyo3::types::{PyAnyMethods, PyListMethods};
 use serde::{Deserialize, Serialize};
-use pyo3::types::{PyAnyMethods, PyTuple, PyListMethods, PyTupleMethods};
-use std::ffi::CString;
 
 /// Represents process information extracted from a memory dump
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,82 +67,121 @@ impl ProcessAnalyzer {
     /// List all processes in a memory dump
     ///
     /// Uses the PsList plugin to enumerate processes  
-    pub fn list_processes(&self, context: &VolatilityContext) -> MemoryAnalysisResult<Vec<ProcessInfo>> {
+    pub fn list_processes(
+        &self,
+        context: &VolatilityContext,
+    ) -> MemoryAnalysisResult<Vec<ProcessInfo>> {
         PythonManager::with_gil(|py| {
-            // Import required Volatility modules  
-            let contexts_module = py.import("volatility3.framework.contexts")?;
-            let plugins_module = py.import("volatility3.framework.plugins")?;
-            let automagic_module = py.import("volatility3.framework.automagic")?;
-            let pslist_module = py.import("volatility3.plugins.windows.pslist")?;
-            let pslist_class = pslist_module.getattr("PsList")?;
-            let traceback_module = py.import("traceback")?;
-            
-            // Create a new Volatility context
-            let ctx = contexts_module.getattr("Context")?.call0()?;
-            
-            // Set the single location (dump file path) in config
-            let config = ctx.getattr("config")?;
-            let file_url = format!("file:///{}", context.dump_path().replace("\\", "/"));
-            config.set_item("automagic.LayerStacker.single_location", file_url)?;
-            
-            // Get available automagics and choose appropriate ones
-            let available_automagics = automagic_module.call_method1("available", (&ctx,))?;
-            let chosen_automagics = automagic_module.call_method1("choose_automagic", (&available_automagics, &pslist_class))?;
-            
-            // Run automagics to set up layers (this is critical!)
-            let base_config_path = "plugins";
-            let _automagic_errors = automagic_module.call_method(
-                "run",
-                (&chosen_automagics, &ctx, &pslist_class, base_config_path, py.None()),
-                None
-            )?;
-            
-            // Construct the plugin
-            let plugin = plugins_module.call_method(
-                "construct_plugin",
-                (&ctx, &chosen_automagics, &pslist_class, base_config_path, py.None(), py.None()),
-                None
-            )?;
-            
-            // Run the plugin to get TreeGrid
-            let treegrid = plugin.call_method0("run")?;
-            
-            // Populate the treegrid
-            let code = CString::new("lambda row, accumulator: accumulator.append(row)").unwrap();
-            let visitor_fn = py.eval(&code, None, None)?;
-            
-            let processes_list = pyo3::types::PyList::empty(py);
-            treegrid.call_method1("populate", (&visitor_fn, &processes_list))?;
-            
+            // Execute Python code that mimics the Volatility CLI approach
+            let python_code = format!(
+                r#"
+import sys
+from volatility3 import framework
+from volatility3.framework import contexts, plugins, automagic
+from volatility3.plugins.windows import pslist
+
+def run_pslist(dump_path):
+    # Create context
+    ctx = contexts.Context()
+    
+    # Set the dump file location
+    file_url = 'file:///' + dump_path.replace('\\', '/')
+    ctx.config['automagic.LayerStacker.single_location'] = file_url
+    
+    # Setup plugin
+    plugin_class = pslist.PsList
+    base_config_path = 'plugins'
+    
+    # Get available automagics
+    automagics = automagic.available(ctx)
+    
+    # Choose automagics for the plugin
+    plugin_list = automagic.choose_automagic(automagics, plugin_class)
+    
+    # Run automagics to populate configuration
+    errors = automagic.run(plugin_list, ctx, plugin_class, base_config_path, None)
+    if errors:
+        raise Exception(f"Automagic failed with errors: {{errors}}")
+    
+    # Construct the plugin - now that automagics have run
+    plugin = plugins.construct_plugin(ctx, plugin_list, plugin_class, base_config_path, None, None)
+    
+    # Run the plugin
+    treegrid = plugin.run()
+    
+    # Collect results
+    results = []
+    def visitor(node, accumulator):
+        if accumulator is not None:
+            accumulator.append(node)
+        return accumulator  # Return accumulator for chaining
+    
+    treegrid.populate(visitor, results)
+    
+    return results
+
+results = run_pslist('{}')
+"#,
+                context.dump_path().replace("\\", "\\\\")
+            );
+
+            // Use exec to run the Python code
+            let builtins = py.import("builtins")?;
+            let exec_fn = builtins.getattr("exec")?;
+            let globals = pyo3::types::PyDict::new(py);
+            globals.set_item("__builtins__", builtins)?;
+            exec_fn.call1((&python_code, &globals))?;
+
+            // Get results from globals (since that's where our script puts it)
+            let results = globals.get_item("results")?;
+            let processes_list = results.downcast::<pyo3::types::PyList>()?;
+
             // Extract process information from the treegrid rows
             let mut processes = Vec::new();
-            
+
             for row in processes_list.iter() {
-                // Each row is a tuple: (depth, values_tuple)
-                let row_tuple = row.downcast::<PyTuple>()?;
-                if row_tuple.len() < 2 {
-                    continue;
-                }
-                
-                let values_item = row_tuple.get_item(1)?;
-                let values = values_item.downcast::<PyTuple>()?;
-                
-                // Expected columns: PID, PPID, ImageFileName, Offset, Threads, Handles, SessionId, Wow64, CreateTime, ExitTime
+                // Each row is a TreeNode object with a 'values' attribute (which is a list)
+                let node_values = row.getattr("values")?;
+                let values = node_values.downcast::<pyo3::types::PyList>()?;
+
+                // Expected columns: PID, PPID, ImageFileName, Offset(V), Threads, Handles, SessionId, Wow64, CreateTime, ExitTime
                 if values.len() >= 6 {
-                    let pid: u32 = values.get_item(0)?.extract().unwrap_or(0);
-                    let ppid: u32 = values.get_item(1)?.extract().unwrap_or(0);
-                    let name: String = values.get_item(2)?.extract().unwrap_or_else(|_| "Unknown".to_string());
-                    let offset: String = format!("{:#x}", values.get_item(3)?.extract::<u64>().unwrap_or(0));
-                    let threads: u32 = values.get_item(4)?.extract().unwrap_or(0);
-                    let handles: u32 = values.get_item(5)?.extract().unwrap_or(0);
+                    // Extract values - PID/PPID are Pointer types, need to convert via str
+                    let pid: u32 = values.get_item(0)?
+                        .str()?
+                        .to_string()
+                        .parse()
+                        .unwrap_or(0);
+                    let ppid: u32 = values.get_item(1)?
+                        .str()?
+                        .to_string()
+                        .parse()
+                        .unwrap_or(0);
                     
-                    // CreateTime is typically at index 8
+                    // Name is a string
+                    let name: String = values.get_item(2)?
+                        .extract()
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    
+                    // Offset is an integer
+                    let offset: String = format!("{:#x}", values.get_item(3)?.extract::<u64>().unwrap_or(0));
+                    
+                    // Threads is an integer
+                    let threads: u32 = values.get_item(4)?.extract().unwrap_or(0);
+                    
+                    // Handles might be UnreadableValue - try to extract or default to 0
+                    let handles: u32 = values.get_item(5)?.extract().unwrap_or(0);
+
+                    // CreateTime at index 8 - convert to string
                     let create_time: String = if values.len() > 8 {
-                        values.get_item(8)?.extract().unwrap_or_else(|_| "N/A".to_string())
+                        values.get_item(8)?
+                            .str()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|_| "N/A".to_string())
                     } else {
                         "N/A".to_string()
                     };
-                    
+
                     processes.push(ProcessInfo {
                         pid,
                         ppid,
@@ -155,7 +193,7 @@ impl ProcessAnalyzer {
                     });
                 }
             }
-            
+
             Ok(processes)
         })
     }
@@ -163,12 +201,15 @@ impl ProcessAnalyzer {
     /// Get process tree structure
     ///
     /// Uses the PsTree plugin to build a hierarchical process tree
-    pub fn get_process_tree(&self, _context: &VolatilityContext) -> MemoryAnalysisResult<Vec<ProcessInfo>> {
+    pub fn get_process_tree(
+        &self,
+        _context: &VolatilityContext,
+    ) -> MemoryAnalysisResult<Vec<ProcessInfo>> {
         PythonManager::with_gil(|py| {
             // Import required modules
             let _vol3 = py.import("volatility3.framework")?;
             let _plugins = py.import("volatility3.framework.plugins")?;
-            
+
             // Placeholder - will be implemented with actual plugin execution
             let tree = vec![];
             Ok(tree)
@@ -178,25 +219,127 @@ impl ProcessAnalyzer {
     /// Get command line arguments for all processes
     ///
     /// Uses the CmdLine plugin to extract process command lines
-    pub fn get_command_lines(&self, _context: &VolatilityContext) -> MemoryAnalysisResult<Vec<ProcessDetails>> {
+    pub fn get_command_lines(
+        &self,
+        context: &VolatilityContext,
+    ) -> MemoryAnalysisResult<Vec<crate::types::CommandLineInfo>> {
         PythonManager::with_gil(|py| {
-            // Import required modules
-            let _vol3 = py.import("volatility3.framework")?;
-            
-            // Placeholder implementation
-            let details = vec![];
-            Ok(details)
+            // Execute Python code that runs the CmdLine plugin
+            let python_code = format!(
+                r#"
+import sys
+from volatility3 import framework
+from volatility3.framework import contexts, plugins, automagic
+from volatility3.plugins.windows import cmdline
+
+def run_cmdline(dump_path):
+    # Create context
+    ctx = contexts.Context()
+    
+    # Set the dump file location
+    file_url = 'file:///' + dump_path.replace('\\', '/')
+    ctx.config['automagic.LayerStacker.single_location'] = file_url
+    
+    # Setup plugin
+    plugin_class = cmdline.CmdLine
+    base_config_path = 'plugins'
+    
+    # Get available automagics
+    automagics = automagic.available(ctx)
+    
+    # Choose automagics for the plugin
+    plugin_list = automagic.choose_automagic(automagics, plugin_class)
+    
+    # Run automagics to populate configuration
+    errors = automagic.run(plugin_list, ctx, plugin_class, base_config_path, None)
+    if errors:
+        raise Exception(f"Automagic failed with errors: {{errors}}")
+    
+    # Construct the plugin
+    plugin = plugins.construct_plugin(ctx, plugin_list, plugin_class, base_config_path, None, None)
+    
+    # Run the plugin
+    treegrid = plugin.run()
+    
+    # Collect results
+    results = []
+    def visitor(node, accumulator):
+        if accumulator is not None:
+            accumulator.append(node)
+        return accumulator
+    
+    treegrid.populate(visitor, results)
+    
+    return results
+
+results = run_cmdline('{}')
+"#,
+                context.dump_path().replace("\\", "\\\\")
+            );
+
+            // Use exec to run the Python code
+            let builtins = py.import("builtins")?;
+            let exec_fn = builtins.getattr("exec")?;
+            let globals = pyo3::types::PyDict::new(py);
+            globals.set_item("__builtins__", builtins)?;
+            exec_fn.call1((&python_code, &globals))?;
+
+            // Get results from globals
+            let results = globals.get_item("results")?;
+            let cmdline_list = results.downcast::<pyo3::types::PyList>()?;
+
+            // Extract command line information from the treegrid rows
+            let mut command_lines = Vec::new();
+
+            for row in cmdline_list.iter() {
+                // Each row is a TreeNode object with a 'values' attribute
+                let node_values = row.getattr("values")?;
+                let values = node_values.downcast::<pyo3::types::PyList>()?;
+
+                // Expected columns: PID, Process, Args
+                if values.len() >= 3 {
+                    // Extract PID
+                    let pid: u32 = values.get_item(0)?
+                        .str()?
+                        .to_string()
+                        .parse()
+                        .unwrap_or(0);
+                    
+                    // Extract process name
+                    let process_name: String = values.get_item(1)?
+                        .extract()
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    
+                    // Extract command line - handle potential UnreadableValue
+                    let command_line: String = values.get_item(2)?
+                        .str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|_| "<unreadable>".to_string());
+
+                    command_lines.push(crate::types::CommandLineInfo {
+                        pid,
+                        process_name,
+                        command_line,
+                    });
+                }
+            }
+
+            Ok(command_lines)
         })
     }
 
     /// List DLLs loaded by processes
     ///
     /// Uses the DllList plugin to enumerate loaded modules
-    pub fn list_dlls(&self, _context: &VolatilityContext, _pid: Option<u32>) -> MemoryAnalysisResult<Vec<DllInfo>> {
+    pub fn list_dlls(
+        &self,
+        _context: &VolatilityContext,
+        _pid: Option<u32>,
+    ) -> MemoryAnalysisResult<Vec<DllInfo>> {
         PythonManager::with_gil(|py| {
             // Import required modules
             let _vol3 = py.import("volatility3.framework")?;
-            
+
             // Placeholder implementation
             let dlls = vec![];
             Ok(dlls)
@@ -206,11 +349,15 @@ impl ProcessAnalyzer {
     /// List handles opened by processes
     ///
     /// Uses the Handles plugin to enumerate process handles
-    pub fn list_handles(&self, _context: &VolatilityContext, _pid: Option<u32>) -> MemoryAnalysisResult<Vec<HandleInfo>> {
+    pub fn list_handles(
+        &self,
+        _context: &VolatilityContext,
+        _pid: Option<u32>,
+    ) -> MemoryAnalysisResult<Vec<HandleInfo>> {
         PythonManager::with_gil(|py| {
             // Import required modules
             let _vol3 = py.import("volatility3.framework")?;
-            
+
             // Placeholder implementation
             let handles = vec![];
             Ok(handles)
@@ -220,7 +367,11 @@ impl ProcessAnalyzer {
     /// Find a process by name
     ///
     /// Returns all processes matching the given name
-    pub fn find_process_by_name(&self, context: &VolatilityContext, name: &str) -> MemoryAnalysisResult<Vec<ProcessInfo>> {
+    pub fn find_process_by_name(
+        &self,
+        context: &VolatilityContext,
+        name: &str,
+    ) -> MemoryAnalysisResult<Vec<ProcessInfo>> {
         let processes = self.list_processes(context)?;
         Ok(processes
             .into_iter()
@@ -231,7 +382,11 @@ impl ProcessAnalyzer {
     /// Find a process by PID
     ///
     /// Returns the process with the specified PID, if found
-    pub fn find_process_by_pid(&self, context: &VolatilityContext, pid: u32) -> MemoryAnalysisResult<Option<ProcessInfo>> {
+    pub fn find_process_by_pid(
+        &self,
+        context: &VolatilityContext,
+        pid: u32,
+    ) -> MemoryAnalysisResult<Option<ProcessInfo>> {
         let processes = self.list_processes(context)?;
         Ok(processes.into_iter().find(|p| p.pid == pid))
     }
@@ -247,15 +402,16 @@ impl ProcessAnalyzer {
     ) -> MemoryAnalysisResult<String> {
         // Verify plugin is available
         if !self.analyzer.is_plugin_available(plugin_name)? {
-            return Err(MemoryAnalysisError::VolatilityError(
-                format!("Plugin '{}' is not available", plugin_name)
-            ));
+            return Err(MemoryAnalysisError::VolatilityError(format!(
+                "Plugin '{}' is not available",
+                plugin_name
+            )));
         }
 
         PythonManager::with_gil(|py| {
             // Import Volatility framework
             let _vol3 = py.import("volatility3.framework")?;
-            
+
             // Execute the plugin
             // This is a placeholder - actual implementation will use Volatility's plugin system
             let result = format!(
@@ -263,7 +419,7 @@ impl ProcessAnalyzer {
                 plugin_name,
                 context.dump_path()
             );
-            
+
             Ok(result)
         })
     }
@@ -282,15 +438,15 @@ mod tests {
     #[test]
     fn test_list_processes_basic() {
         let analyzer = ProcessAnalyzer::new().unwrap();
-        
+
         // Create a dummy context (we won't actually execute plugins in tests)
         let context = VolatilityContext {
             dump_path: "/tmp/dummy.raw".to_string(),
         };
-        
+
         let result = analyzer.list_processes(&context);
         assert!(result.is_ok(), "Should return process list");
-        
+
         let processes = result.unwrap();
         assert!(!processes.is_empty(), "Should have at least one process");
     }
@@ -301,10 +457,10 @@ mod tests {
         let context = VolatilityContext {
             dump_path: "/tmp/dummy.raw".to_string(),
         };
-        
+
         let result = analyzer.find_process_by_name(&context, "system");
         assert!(result.is_ok(), "Should search for processes");
-        
+
         let processes = result.unwrap();
         assert!(!processes.is_empty(), "Should find System process");
     }
@@ -315,10 +471,10 @@ mod tests {
         let context = VolatilityContext {
             dump_path: "/tmp/dummy.raw".to_string(),
         };
-        
+
         let result = analyzer.find_process_by_pid(&context, 4);
         assert!(result.is_ok(), "Should search for process by PID");
-        
+
         let process = result.unwrap();
         assert!(process.is_some(), "Should find process with PID 4");
     }
@@ -329,7 +485,7 @@ mod tests {
         let context = VolatilityContext {
             dump_path: "/tmp/dummy.raw".to_string(),
         };
-        
+
         let result = analyzer.execute_plugin(&context, "InvalidPlugin", None);
         assert!(result.is_err(), "Should fail with invalid plugin");
     }
@@ -340,7 +496,7 @@ mod tests {
         let context = VolatilityContext {
             dump_path: "/tmp/dummy.raw".to_string(),
         };
-        
+
         let result = analyzer.execute_plugin(&context, "PsList", None);
         assert!(result.is_ok(), "Should execute valid plugin");
     }

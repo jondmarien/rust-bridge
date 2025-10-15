@@ -218,11 +218,20 @@ pub trait JsonSerializable: Serialize + for<'de> Deserialize<'de> {
     }
 }
 
+/// Command line information for a process
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommandLineInfo {
+    pub pid: u32,
+    pub process_name: String,
+    pub command_line: String,
+}
+
 // Implement JsonSerializable for common types
 impl JsonSerializable for VersionInfo {}
 impl JsonSerializable for PluginInfo {}
 impl JsonSerializable for DumpMetadata {}
 impl JsonSerializable for KeyValue {}
+impl JsonSerializable for CommandLineInfo {}
 
 #[cfg(test)]
 mod tests {
