@@ -237,6 +237,20 @@ pub struct DllInfo {
     pub dll_path: String,
 }
 
+/// Network connection information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkConnectionInfo {
+    pub pid: u32,
+    pub process_name: String,
+    pub local_address: String,
+    pub local_port: u16,
+    pub foreign_address: String,
+    pub foreign_port: u16,
+    pub protocol: String,
+    pub state: String,
+    pub created_time: String,
+}
+
 // Implement JsonSerializable for common types
 impl JsonSerializable for VersionInfo {}
 impl JsonSerializable for PluginInfo {}
@@ -244,6 +258,7 @@ impl JsonSerializable for DumpMetadata {}
 impl JsonSerializable for KeyValue {}
 impl JsonSerializable for CommandLineInfo {}
 impl JsonSerializable for DllInfo {}
+impl JsonSerializable for NetworkConnectionInfo {}
 
 #[cfg(test)]
 mod tests {

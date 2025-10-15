@@ -473,6 +473,158 @@ results = run_dlllist('{}', pid_filter)
         })
     }
 
+    /// Scan network connections in the memory dump
+    ///
+    /// Uses the NetScan plugin to enumerate active and closed network connections
+    pub fn scan_network_connections(
+        &self,
+        context: &VolatilityContext,
+    ) -> MemoryAnalysisResult<Vec<crate::types::NetworkConnectionInfo>> {
+        PythonManager::with_gil(|py| {
+            // Execute Python code that runs the NetScan plugin
+            let python_code = format!(
+                r#"
+import sys
+from volatility3 import framework
+from volatility3.framework import contexts, plugins, automagic
+from volatility3.plugins.windows import netscan
+
+def run_netscan(dump_path):
+    # Create context
+    ctx = contexts.Context()
+    
+    # Set the dump file location
+    file_url = 'file:///' + dump_path.replace('\\', '/')
+    ctx.config['automagic.LayerStacker.single_location'] = file_url
+    
+    # Setup plugin
+    plugin_class = netscan.NetScan
+    base_config_path = 'plugins'
+    
+    # Get available automagics
+    automagics = automagic.available(ctx)
+    
+    # Choose automagics for the plugin
+    plugin_list = automagic.choose_automagic(automagics, plugin_class)
+    
+    # Run automagics to populate configuration
+    errors = automagic.run(plugin_list, ctx, plugin_class, base_config_path, None)
+    if errors:
+        raise Exception(f"Automagic failed with errors: {{errors}}")
+    
+    # Construct the plugin
+    plugin = plugins.construct_plugin(ctx, plugin_list, plugin_class, base_config_path, None, None)
+    
+    # Run the plugin
+    treegrid = plugin.run()
+    
+    # Collect results
+    results = []
+    def visitor(node, accumulator):
+        if accumulator is not None:
+            accumulator.append(node)
+        return accumulator
+    
+    treegrid.populate(visitor, results)
+    
+    return results
+
+results = run_netscan('{}')
+"#,
+                context.dump_path().replace("\\", "\\\\")
+            );
+
+            // Use exec to run the Python code
+            let builtins = py.import("builtins")?;
+            let exec_fn = builtins.getattr("exec")?;
+            let globals = pyo3::types::PyDict::new(py);
+            globals.set_item("__builtins__", builtins)?;
+            exec_fn.call1((&python_code, &globals))?;
+
+            // Get results from globals
+            let results = globals.get_item("results")?;
+            let netscan_list = results.downcast::<pyo3::types::PyList>()?;
+
+            // Extract network connection information from the treegrid rows
+            let mut connections = Vec::new();
+
+            for row in netscan_list.iter() {
+                // Each row is a TreeNode object with a 'values' attribute
+                let node_values = row.getattr("values")?;
+                let values = node_values.downcast::<pyo3::types::PyList>()?;
+
+                // Expected columns: Offset, Proto, LocalAddr, LocalPort, ForeignAddr, ForeignPort, State, PID, Owner, Created
+                if values.len() >= 10 {
+                    // Extract PID (index 7)
+                    let pid: u32 = values.get_item(7)?
+                        .str()?
+                        .to_string()
+                        .parse()
+                        .unwrap_or(0);
+                    
+                    // Extract process name/owner (index 8)
+                    let process_name: String = values.get_item(8)?
+                        .extract()
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    
+                    // Extract protocol (index 1)
+                    let protocol: String = values.get_item(1)?
+                        .extract()
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    
+                    // Extract local address (index 2)
+                    let local_address: String = values.get_item(2)?
+                        .extract()
+                        .unwrap_or_else(|_| "0.0.0.0".to_string());
+                    
+                    // Extract local port (index 3)
+                    let local_port: u16 = values.get_item(3)?
+                        .str()?
+                        .to_string()
+                        .parse()
+                        .unwrap_or(0);
+                    
+                    // Extract foreign address (index 4)
+                    let foreign_address: String = values.get_item(4)?
+                        .extract()
+                        .unwrap_or_else(|_| "0.0.0.0".to_string());
+                    
+                    // Extract foreign port (index 5)
+                    let foreign_port: u16 = values.get_item(5)?
+                        .str()?
+                        .to_string()
+                        .parse()
+                        .unwrap_or(0);
+                    
+                    // Extract state (index 6)
+                    let state: String = values.get_item(6)?
+                        .extract()
+                        .unwrap_or_else(|_| "UNKNOWN".to_string());
+                    
+                    // Extract created time (index 9) - handle potential UnreadableValue
+                    let created_time: String = values.get_item(9)?
+                        .str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|_| "N/A".to_string());
+
+                    connections.push(crate::types::NetworkConnectionInfo {
+                        pid,
+                        process_name,
+                        local_address,
+                        local_port,
+                        foreign_address,
+                        foreign_port,
+                        protocol,
+                        state,
+                        created_time,
+                    });
+                }
+            }
+
+            Ok(connections)
+        })
+    }
+
     /// List handles opened by processes
     ///
     /// Uses the Handles plugin to enumerate process handles

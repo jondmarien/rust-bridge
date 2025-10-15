@@ -342,6 +342,72 @@ pub extern "C" fn rust_bridge_list_dlls(
     }
 }
 
+/// Scan network connections in a memory dump (FFI export)
+/// 
+/// # Parameters
+/// * `dump_path` - Path to the memory dump file
+#[no_mangle]
+pub extern "C" fn rust_bridge_scan_network_connections(
+    dump_path: *const c_char,
+) -> *mut c_char {
+    if dump_path.is_null() {
+        log_debug("Error: dump_path is null");
+        return std::ptr::null_mut();
+    }
+    
+    let c_str = unsafe { CStr::from_ptr(dump_path) };
+    let path_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            log_debug(&format!("Error converting path to string: {}", e));
+            return std::ptr::null_mut();
+        }
+    };
+    
+    log_debug(&format!("Scanning network connections from dump: {}", path_str));
+    
+    // Create analyzer and context
+    let analyzer = match ProcessAnalyzer::new() {
+        Ok(a) => a,
+        Err(e) => {
+            log_debug(&format!("Error creating analyzer: {}", e));
+            return std::ptr::null_mut();
+        }
+    };
+    
+    let context = VolatilityContext {
+        dump_path: path_str.to_string(),
+    };
+    
+    // Scan network connections
+    let connections = match analyzer.scan_network_connections(&context) {
+        Ok(conn_list) => conn_list,
+        Err(e) => {
+            log_debug(&format!("Error scanning network connections: {}", e));
+            return std::ptr::null_mut();
+        }
+    };
+    
+    log_debug(&format!("Successfully extracted {} network connections", connections.len()));
+    
+    // Serialize to JSON
+    let json = match serde_json::to_string(&connections) {
+        Ok(j) => j,
+        Err(e) => {
+            log_debug(&format!("Error serializing to JSON: {}", e));
+            return std::ptr::null_mut();
+        }
+    };
+    
+    match CString::new(json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(e) => {
+            log_debug(&format!("Error creating CString: {}", e));
+            std::ptr::null_mut()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
