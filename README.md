@@ -221,7 +221,7 @@ Critical pattern for all plugins:
 let ctx = contexts.Context();
 
 // 2. Set dump location
-ctx.config['automagic.LayerStacker.single_location'] = file_url;
+ctx.config[`automagic.LayerStacker.single_location`] = file_url;
 
 // 3. Get automagics
 let automagics = automagic.available(ctx);
