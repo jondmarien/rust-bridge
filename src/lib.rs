@@ -59,8 +59,33 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+// Global debug flag controlled by environment variable
+static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Check if debug logging is enabled via environment variable
+fn is_debug_enabled() -> bool {
+    DEBUG_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Initialize debug mode from environment variable
+fn init_debug_mode() {
+    if let Ok(val) = std::env::var("RUST_BRIDGE_DEBUG") {
+        let enabled = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes" | "on");
+        DEBUG_ENABLED.store(enabled, Ordering::Relaxed);
+        if enabled {
+            eprintln!("[rust_bridge] Debug logging enabled");
+        }
+    }
+}
+
+/// Log debug messages only when debug mode is enabled
 fn log_debug(msg: &str) {
+    if !is_debug_enabled() {
+        return;
+    }
+    
     let log_path = "J:\\projects\\personal-projects\\MemoryAnalysis\\rust-bridge-debug.log";
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
         let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), msg);
@@ -71,6 +96,9 @@ fn log_debug(msg: &str) {
 /// Initialize the Rust-Python bridge (FFI export)
 #[no_mangle]
 pub extern "C" fn rust_bridge_initialize() -> i32 {
+    // Initialize debug mode from environment
+    init_debug_mode();
+    
     match initialize() {
         Ok(_) => 0,
         Err(_) => -1,
@@ -162,6 +190,67 @@ pub extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) -> *mut c
     
     // Serialize to JSON
     let json = match serde_json::to_string(&processes) {
+        Ok(j) => j,
+        Err(e) => {
+            log_debug(&format!("Error serializing to JSON: {}", e));
+            return std::ptr::null_mut();
+        }
+    };
+    
+    match CString::new(json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(e) => {
+            log_debug(&format!("Error creating CString: {}", e));
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Get command lines for processes in a memory dump (FFI export)
+#[no_mangle]
+pub extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char) -> *mut c_char {
+    if dump_path.is_null() {
+        log_debug("Error: dump_path is null");
+        return std::ptr::null_mut();
+    }
+    
+    let c_str = unsafe { CStr::from_ptr(dump_path) };
+    let path_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(e) => {
+            log_debug(&format!("Error converting path to string: {}", e));
+            return std::ptr::null_mut();
+        }
+    };
+    
+    log_debug(&format!("Getting command lines from dump: {}", path_str));
+    
+    // Create analyzer and context
+    let analyzer = match ProcessAnalyzer::new() {
+        Ok(a) => a,
+        Err(e) => {
+            log_debug(&format!("Error creating analyzer: {}", e));
+            return std::ptr::null_mut();
+        }
+    };
+    
+    let context = VolatilityContext {
+        dump_path: path_str.to_string(),
+    };
+    
+    // Get command lines
+    let command_lines = match analyzer.get_command_lines(&context) {
+        Ok(cmds) => cmds,
+        Err(e) => {
+            log_debug(&format!("Error getting command lines: {}", e));
+            return std::ptr::null_mut();
+        }
+    };
+    
+    log_debug(&format!("Successfully extracted {} command lines", command_lines.len()));
+    
+    // Serialize to JSON
+    let json = match serde_json::to_string(&command_lines) {
         Ok(j) => j,
         Err(e) => {
             log_debug(&format!("Error serializing to JSON: {}", e));
