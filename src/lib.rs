@@ -57,6 +57,16 @@ pub fn check_volatility_available() -> Result<bool> {
 // FFI exports for C# interop
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::fs::OpenOptions;
+use std::io::Write;
+
+fn log_debug(msg: &str) {
+    let log_path = "J:\\projects\\personal-projects\\MemoryAnalysis\\rust-bridge-debug.log";
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+        let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), msg);
+    }
+    eprintln!("[rust_bridge] {}", msg);
+}
 
 /// Initialize the Rust-Python bridge (FFI export)
 #[no_mangle]
@@ -111,19 +121,28 @@ pub extern "C" fn rust_bridge_free_string(ptr: *mut c_char) {
 #[no_mangle]
 pub extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) -> *mut c_char {
     if dump_path.is_null() {
+        log_debug("Error: dump_path is null");
         return std::ptr::null_mut();
     }
     
     let c_str = unsafe { CStr::from_ptr(dump_path) };
     let path_str = match c_str.to_str() {
         Ok(s) => s,
-        Err(_) => return std::ptr::null_mut(),
+        Err(e) => {
+            log_debug(&format!("Error converting path to string: {}", e));
+            return std::ptr::null_mut();
+        }
     };
+    
+    log_debug(&format!("Processing dump: {}", path_str));
     
     // Create analyzer and context
     let analyzer = match ProcessAnalyzer::new() {
         Ok(a) => a,
-        Err(_) => return std::ptr::null_mut(),
+        Err(e) => {
+            log_debug(&format!("Error creating analyzer: {}", e));
+            return std::ptr::null_mut();
+        }
     };
     
     let context = VolatilityContext {
@@ -133,18 +152,29 @@ pub extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) -> *mut c
     // Get process list
     let processes = match analyzer.list_processes(&context) {
         Ok(procs) => procs,
-        Err(_) => return std::ptr::null_mut(),
+        Err(e) => {
+            log_debug(&format!("Error listing processes: {}", e));
+            return std::ptr::null_mut();
+        }
     };
+    
+    log_debug(&format!("Successfully extracted {} processes", processes.len()));
     
     // Serialize to JSON
     let json = match serde_json::to_string(&processes) {
         Ok(j) => j,
-        Err(_) => return std::ptr::null_mut(),
+        Err(e) => {
+            log_debug(&format!("Error serializing to JSON: {}", e));
+            return std::ptr::null_mut();
+        }
     };
     
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
-        Err(_) => std::ptr::null_mut(),
+        Err(e) => {
+            log_debug(&format!("Error creating CString: {}", e));
+            std::ptr::null_mut()
+        }
     }
 }
 

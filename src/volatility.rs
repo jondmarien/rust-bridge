@@ -92,15 +92,9 @@ impl VolatilityAnalyzer {
             ));
         }
         
-        PythonManager::with_gil(|py| {
-            // Import Volatility framework modules
-            let _framework = py.import("volatility3.framework")?;
-            let _context_module = py.import("volatility3.framework.contexts")?;
-            
-            // Store the dump path for later use
-            Ok(VolatilityContext {
-                dump_path: dump_path.to_string(),
-            })
+        // Just store the dump path, we'll create fresh Python objects on each use
+        Ok(VolatilityContext {
+            dump_path: dump_path.to_string(),
         })
     }
     

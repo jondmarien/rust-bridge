@@ -6,6 +6,8 @@
 use crate::{MemoryAnalysisError, MemoryAnalysisResult, PythonManager};
 use crate::volatility::{VolatilityAnalyzer, VolatilityContext};
 use serde::{Deserialize, Serialize};
+use pyo3::types::{PyAnyMethods, PyTuple, PyListMethods, PyTupleMethods};
+use std::ffi::CString;
 
 /// Represents process information extracted from a memory dump
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,27 +67,94 @@ impl ProcessAnalyzer {
 
     /// List all processes in a memory dump
     ///
-    /// Uses the PsList plugin to enumerate processes
-    pub fn list_processes(&self, _context: &VolatilityContext) -> MemoryAnalysisResult<Vec<ProcessInfo>> {
+    /// Uses the PsList plugin to enumerate processes  
+    pub fn list_processes(&self, context: &VolatilityContext) -> MemoryAnalysisResult<Vec<ProcessInfo>> {
         PythonManager::with_gil(|py| {
-            // Import Volatility framework modules
-            let _vol3 = py.import("volatility3.framework")?;
-            let _contexts_mod = py.import("volatility3.framework.contexts")?;
-            let _plugins_mod = py.import("volatility3.framework.plugins")?;
+            // Import required Volatility modules  
+            let contexts_module = py.import("volatility3.framework.contexts")?;
+            let plugins_module = py.import("volatility3.framework.plugins")?;
+            let automagic_module = py.import("volatility3.framework.automagic")?;
+            let pslist_module = py.import("volatility3.plugins.windows.pslist")?;
+            let pslist_class = pslist_module.getattr("PsList")?;
+            let traceback_module = py.import("traceback")?;
             
-            // For now, return a placeholder result
-            // Full implementation will parse actual Volatility output
-            let processes = vec![
-                ProcessInfo {
-                    pid: 4,
-                    ppid: 0,
-                    name: "System".to_string(),
-                    offset: "0x0".to_string(),
-                    threads: 100,
-                    handles: 1000,
-                    create_time: "2024-01-01 00:00:00".to_string(),
-                },
-            ];
+            // Create a new Volatility context
+            let ctx = contexts_module.getattr("Context")?.call0()?;
+            
+            // Set the single location (dump file path) in config
+            let config = ctx.getattr("config")?;
+            let file_url = format!("file:///{}", context.dump_path().replace("\\", "/"));
+            config.set_item("automagic.LayerStacker.single_location", file_url)?;
+            
+            // Get available automagics and choose appropriate ones
+            let available_automagics = automagic_module.call_method1("available", (&ctx,))?;
+            let chosen_automagics = automagic_module.call_method1("choose_automagic", (&available_automagics, &pslist_class))?;
+            
+            // Run automagics to set up layers (this is critical!)
+            let base_config_path = "plugins";
+            let _automagic_errors = automagic_module.call_method(
+                "run",
+                (&chosen_automagics, &ctx, &pslist_class, base_config_path, py.None()),
+                None
+            )?;
+            
+            // Construct the plugin
+            let plugin = plugins_module.call_method(
+                "construct_plugin",
+                (&ctx, &chosen_automagics, &pslist_class, base_config_path, py.None(), py.None()),
+                None
+            )?;
+            
+            // Run the plugin to get TreeGrid
+            let treegrid = plugin.call_method0("run")?;
+            
+            // Populate the treegrid
+            let code = CString::new("lambda row, accumulator: accumulator.append(row)").unwrap();
+            let visitor_fn = py.eval(&code, None, None)?;
+            
+            let processes_list = pyo3::types::PyList::empty(py);
+            treegrid.call_method1("populate", (&visitor_fn, &processes_list))?;
+            
+            // Extract process information from the treegrid rows
+            let mut processes = Vec::new();
+            
+            for row in processes_list.iter() {
+                // Each row is a tuple: (depth, values_tuple)
+                let row_tuple = row.downcast::<PyTuple>()?;
+                if row_tuple.len() < 2 {
+                    continue;
+                }
+                
+                let values_item = row_tuple.get_item(1)?;
+                let values = values_item.downcast::<PyTuple>()?;
+                
+                // Expected columns: PID, PPID, ImageFileName, Offset, Threads, Handles, SessionId, Wow64, CreateTime, ExitTime
+                if values.len() >= 6 {
+                    let pid: u32 = values.get_item(0)?.extract().unwrap_or(0);
+                    let ppid: u32 = values.get_item(1)?.extract().unwrap_or(0);
+                    let name: String = values.get_item(2)?.extract().unwrap_or_else(|_| "Unknown".to_string());
+                    let offset: String = format!("{:#x}", values.get_item(3)?.extract::<u64>().unwrap_or(0));
+                    let threads: u32 = values.get_item(4)?.extract().unwrap_or(0);
+                    let handles: u32 = values.get_item(5)?.extract().unwrap_or(0);
+                    
+                    // CreateTime is typically at index 8
+                    let create_time: String = if values.len() > 8 {
+                        values.get_item(8)?.extract().unwrap_or_else(|_| "N/A".to_string())
+                    } else {
+                        "N/A".to_string()
+                    };
+                    
+                    processes.push(ProcessInfo {
+                        pid,
+                        ppid,
+                        name,
+                        offset,
+                        threads,
+                        handles,
+                        create_time,
+                    });
+                }
+            }
             
             Ok(processes)
         })

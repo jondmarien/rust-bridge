@@ -1,5 +1,6 @@
 use std::fmt;
 use pyo3::PyErr;
+use pyo3::types::PyTracebackMethods;
 
 /// Custom error type for memory analysis operations
 #[derive(Debug)]
@@ -40,7 +41,15 @@ impl std::error::Error for MemoryAnalysisError {}
 
 impl From<PyErr> for MemoryAnalysisError {
     fn from(err: PyErr) -> Self {
-        MemoryAnalysisError::PythonError(err.to_string())
+        use pyo3::Python;
+        // Try to get more detailed error information including traceback
+        let detailed_msg = Python::attach(|py| {
+            let traceback = err.traceback(py)
+                .and_then(|tb| tb.format().ok())
+                .unwrap_or_else(|| "(no traceback available)".to_string());
+            format!("{}\n{}", err, traceback)
+        });
+        MemoryAnalysisError::PythonError(detailed_msg)
     }
 }
 
