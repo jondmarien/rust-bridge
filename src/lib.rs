@@ -54,6 +54,100 @@ pub fn check_volatility_available() -> Result<bool> {
     Ok(result)
 }
 
+// FFI exports for C# interop
+use std::ffi::{CStr, CString};
+use std::os::raw::c_char;
+
+/// Initialize the Rust-Python bridge (FFI export)
+#[no_mangle]
+pub extern "C" fn rust_bridge_initialize() -> i32 {
+    match initialize() {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Check if Volatility3 is available (FFI export)
+#[no_mangle]
+pub extern "C" fn rust_bridge_check_volatility() -> i32 {
+    match check_volatility_available() {
+        Ok(true) => 1,
+        Ok(false) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Get version information as JSON string (FFI export)
+#[no_mangle]
+pub extern "C" fn rust_bridge_get_version() -> *mut c_char {
+    let version = VersionInfo {
+        rust_bridge_version: env!("CARGO_PKG_VERSION").to_string(),
+        volatility_version: "2.26.2".to_string(),
+        python_version: "3.12.11".to_string(),
+    };
+    
+    match serde_json::to_string(&version) {
+        Ok(json) => {
+            match CString::new(json) {
+                Ok(c_str) => c_str.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            }
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Free a string allocated by Rust (FFI export)
+#[no_mangle]
+pub extern "C" fn rust_bridge_free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = CString::from_raw(ptr);
+        }
+    }
+}
+
+/// List processes in a memory dump (FFI export)
+#[no_mangle]
+pub extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) -> *mut c_char {
+    if dump_path.is_null() {
+        return std::ptr::null_mut();
+    }
+    
+    let c_str = unsafe { CStr::from_ptr(dump_path) };
+    let path_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    
+    // Create analyzer and context
+    let analyzer = match ProcessAnalyzer::new() {
+        Ok(a) => a,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    
+    let context = VolatilityContext {
+        dump_path: path_str.to_string(),
+    };
+    
+    // Get process list
+    let processes = match analyzer.list_processes(&context) {
+        Ok(procs) => procs,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    
+    // Serialize to JSON
+    let json = match serde_json::to_string(&processes) {
+        Ok(j) => j,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    
+    match CString::new(json) {
+        Ok(c_str) => c_str.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
