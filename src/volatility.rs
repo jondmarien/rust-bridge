@@ -52,7 +52,7 @@ impl VolatilityAnalyzer {
             
             // Get the list of plugins
             // This is a simplified version - full implementation would scan plugin directories
-            let plugins = PyList::new(py, &[
+            let plugins = PyList::new(py, [
                 "windows.pslist.PsList",
                 "windows.pstree.PsTree",
                 "windows.cmdline.CmdLine",

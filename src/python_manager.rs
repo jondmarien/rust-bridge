@@ -69,7 +69,7 @@ impl PythonManager {
         Self::initialize()?;
         
         // Execute the operation
-        let result = Python::attach(|py| f(py));
+        let result = Python::attach(f);
         
         result.map_err(|e| MemoryAnalysisError::PythonError(e.to_string()))
     }

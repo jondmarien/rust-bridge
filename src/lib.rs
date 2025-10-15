@@ -8,10 +8,10 @@ use anyhow::Result;
 
 // Module declarations
 mod python_manager;
-mod error;
+pub mod error;  // Made public for tests
 mod volatility;
 mod process_analysis;
-mod types;
+pub mod types;  // Made public for tests
 
 pub use error::{MemoryAnalysisError, MemoryAnalysisResult};
 pub use python_manager::PythonManager;
@@ -20,6 +20,7 @@ pub use process_analysis::{ProcessAnalyzer, ProcessInfo, ProcessDetails, DllInfo
 pub use types::{
     AnalysisResult, AnalysisMetadata, VersionInfo, PluginInfo, DumpMetadata,
     KeyValue, PyConverter, JsonSerializable,
+    CommandLineInfo, NetworkConnectionInfo, MalwareDetection,
 };
 
 /// Initialize the Rust-Python bridge
@@ -31,10 +32,12 @@ pub fn initialize() -> Result<()> {
     // Verify Python interpreter is available  
     Python::attach(|py| {
         let version = py.version_info();
-        println!(
-            "Python {}.{}.{} initialized",
-            version.major, version.minor, version.patch
-        );
+        if is_debug_enabled() {
+            eprintln!(
+                "[rust_bridge] Python {}.{}.{} initialized",
+                version.major, version.minor, version.patch
+            );
+        }
     });
     
     Ok(())
@@ -136,24 +139,35 @@ pub extern "C" fn rust_bridge_get_version() -> *mut c_char {
 }
 
 /// Free a string allocated by Rust (FFI export)
+///
+/// # Safety
+/// This function takes ownership of a raw pointer previously allocated by Rust.
+/// The caller must ensure:
+/// - `ptr` was allocated by a Rust function that returns `*mut c_char`
+/// - `ptr` has not been freed already
+/// - `ptr` will not be used after this call
 #[no_mangle]
-pub extern "C" fn rust_bridge_free_string(ptr: *mut c_char) {
+pub unsafe extern "C" fn rust_bridge_free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
-        unsafe {
-            let _ = CString::from_raw(ptr);
-        }
+        let _ = CString::from_raw(ptr);
     }
 }
 
 /// List processes in a memory dump (FFI export)
+///
+/// # Safety
+/// This function dereferences raw pointers passed from C#.
+/// The caller must ensure:
+/// - `dump_path` is a valid pointer to a null-terminated C string
+/// - The memory remains valid for the duration of this call
 #[no_mangle]
-pub extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) -> *mut c_char {
     if dump_path.is_null() {
         log_debug("Error: dump_path is null");
         return std::ptr::null_mut();
     }
     
-    let c_str = unsafe { CStr::from_ptr(dump_path) };
+    let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
         Err(e) => {
@@ -207,14 +221,20 @@ pub extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) -> *mut c
 }
 
 /// Get command lines for processes in a memory dump (FFI export)
+///
+/// # Safety
+/// This function dereferences raw pointers passed from C#.
+/// The caller must ensure:
+/// - `dump_path` is a valid pointer to a null-terminated C string
+/// - The memory remains valid for the duration of this call
 #[no_mangle]
-pub extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char) -> *mut c_char {
     if dump_path.is_null() {
         log_debug("Error: dump_path is null");
         return std::ptr::null_mut();
     }
     
-    let c_str = unsafe { CStr::from_ptr(dump_path) };
+    let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
         Err(e) => {
@@ -272,8 +292,14 @@ pub extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char) -> *mu
 /// # Parameters
 /// * `dump_path` - Path to the memory dump file
 /// * `pid` - Optional process ID to filter by (0 = no filter)
+///
+/// # Safety
+/// This function dereferences raw pointers passed from C#.
+/// The caller must ensure:
+/// - `dump_path` is a valid pointer to a null-terminated C string
+/// - The memory remains valid for the duration of this call
 #[no_mangle]
-pub extern "C" fn rust_bridge_list_dlls(
+pub unsafe extern "C" fn rust_bridge_list_dlls(
     dump_path: *const c_char,
     pid: u32,
 ) -> *mut c_char {
@@ -282,7 +308,7 @@ pub extern "C" fn rust_bridge_list_dlls(
         return std::ptr::null_mut();
     }
     
-    let c_str = unsafe { CStr::from_ptr(dump_path) };
+    let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
         Err(e) => {
@@ -346,8 +372,14 @@ pub extern "C" fn rust_bridge_list_dlls(
 /// 
 /// # Parameters
 /// * `dump_path` - Path to the memory dump file
+///
+/// # Safety
+/// This function dereferences raw pointers passed from C#.
+/// The caller must ensure:
+/// - `dump_path` is a valid pointer to a null-terminated C string
+/// - The memory remains valid for the duration of this call
 #[no_mangle]
-pub extern "C" fn rust_bridge_scan_network_connections(
+pub unsafe extern "C" fn rust_bridge_scan_network_connections(
     dump_path: *const c_char,
 ) -> *mut c_char {
     if dump_path.is_null() {
@@ -355,7 +387,7 @@ pub extern "C" fn rust_bridge_scan_network_connections(
         return std::ptr::null_mut();
     }
     
-    let c_str = unsafe { CStr::from_ptr(dump_path) };
+    let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
         Err(e) => {
@@ -412,8 +444,14 @@ pub extern "C" fn rust_bridge_scan_network_connections(
 /// 
 /// # Parameters
 /// * `dump_path` - Path to the memory dump file
+///
+/// # Safety
+/// This function dereferences raw pointers passed from C#.
+/// The caller must ensure:
+/// - `dump_path` is a valid pointer to a null-terminated C string
+/// - The memory remains valid for the duration of this call
 #[no_mangle]
-pub extern "C" fn rust_bridge_detect_malware(
+pub unsafe extern "C" fn rust_bridge_detect_malware(
     dump_path: *const c_char,
 ) -> *mut c_char {
     if dump_path.is_null() {
@@ -421,7 +459,7 @@ pub extern "C" fn rust_bridge_detect_malware(
         return std::ptr::null_mut();
     }
     
-    let c_str = unsafe { CStr::from_ptr(dump_path) };
+    let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
         Err(e) => {
