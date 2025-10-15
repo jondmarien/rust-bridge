@@ -251,6 +251,18 @@ pub struct NetworkConnectionInfo {
     pub created_time: String,
 }
 
+/// Malware detection result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MalwareDetection {
+    pub pid: u32,
+    pub process_name: String,
+    pub detection_type: String,
+    pub severity: String,
+    pub confidence: u8,
+    pub indicators: Vec<String>,
+    pub details: String,
+}
+
 // Implement JsonSerializable for common types
 impl JsonSerializable for VersionInfo {}
 impl JsonSerializable for PluginInfo {}
@@ -259,6 +271,7 @@ impl JsonSerializable for KeyValue {}
 impl JsonSerializable for CommandLineInfo {}
 impl JsonSerializable for DllInfo {}
 impl JsonSerializable for NetworkConnectionInfo {}
+impl JsonSerializable for MalwareDetection {}
 
 #[cfg(test)]
 mod tests {

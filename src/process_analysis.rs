@@ -625,6 +625,158 @@ results = run_netscan('{}')
         })
     }
 
+    /// Detect potential malware using Malfind plugin
+    ///
+    /// Uses the Malfind plugin to detect code injection and suspicious memory regions
+    pub fn detect_malware(
+        &self,
+        context: &VolatilityContext,
+    ) -> MemoryAnalysisResult<Vec<crate::types::MalwareDetection>> {
+        PythonManager::with_gil(|py| {
+            // Execute Python code that runs the Malfind plugin
+            let python_code = format!(
+                r#"
+import sys
+from volatility3 import framework
+from volatility3.framework import contexts, plugins, automagic
+from volatility3.plugins.windows import malfind
+
+def run_malfind(dump_path):
+    # Create context
+    ctx = contexts.Context()
+    
+    # Set the dump file location
+    file_url = 'file:///' + dump_path.replace('\\', '/')
+    ctx.config['automagic.LayerStacker.single_location'] = file_url
+    
+    # Setup plugin
+    plugin_class = malfind.Malfind
+    base_config_path = 'plugins'
+    
+    # Get available automagics
+    automagics = automagic.available(ctx)
+    
+    # Choose automagics for the plugin
+    plugin_list = automagic.choose_automagic(automagics, plugin_class)
+    
+    # Run automagics to populate configuration
+    errors = automagic.run(plugin_list, ctx, plugin_class, base_config_path, None)
+    if errors:
+        raise Exception(f"Automagic failed with errors: {{errors}}")
+    
+    # Construct the plugin
+    plugin = plugins.construct_plugin(ctx, plugin_list, plugin_class, base_config_path, None, None)
+    
+    # Run the plugin
+    treegrid = plugin.run()
+    
+    # Collect results
+    results = []
+    def visitor(node, accumulator):
+        if accumulator is not None:
+            accumulator.append(node)
+        return accumulator
+    
+    treegrid.populate(visitor, results)
+    
+    return results
+
+results = run_malfind('{}')
+"#,
+                context.dump_path().replace("\\", "\\\\")
+            );
+
+            // Use exec to run the Python code
+            let builtins = py.import("builtins")?;
+            let exec_fn = builtins.getattr("exec")?;
+            let globals = pyo3::types::PyDict::new(py);
+            globals.set_item("__builtins__", builtins)?;
+            exec_fn.call1((&python_code, &globals))?;
+
+            // Get results from globals
+            let results = globals.get_item("results")?;
+            let malfind_list = results.downcast::<pyo3::types::PyList>()?;
+
+            // Extract malware detection information from the treegrid rows
+            let mut detections = Vec::new();
+
+            for row in malfind_list.iter() {
+                // Each row is a TreeNode object with a 'values' attribute
+                let node_values = row.getattr("values")?;
+                let values = node_values.downcast::<pyo3::types::PyList>()?;
+
+                // Expected columns: PID, Process, Start VPN, End VPN, Tag, Protection, Hexdump, Disasm
+                if values.len() >= 8 {
+                    // Extract PID (index 0)
+                    let pid: u32 = values.get_item(0)?
+                        .str()?
+                        .to_string()
+                        .parse()
+                        .unwrap_or(0);
+                    
+                    // Extract process name (index 1)
+                    let process_name: String = values.get_item(1)?
+                        .extract()
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    
+                    // Extract memory region start (index 2)
+                    let start_vpn: String = values.get_item(2)?
+                        .str()?
+                        .to_string();
+                    
+                    // Extract memory region end (index 3)
+                    let end_vpn: String = values.get_item(3)?
+                        .str()?
+                        .to_string();
+                    
+                    // Extract tag (index 4)
+                    let tag: String = values.get_item(4)?
+                        .extract()
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    
+                    // Extract protection (index 5)
+                    let protection: String = values.get_item(5)?
+                        .extract()
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    
+                    // Build indicators list
+                    let mut indicators = Vec::new();
+                    indicators.push(format!("Memory region: {} - {}", start_vpn, end_vpn));
+                    indicators.push(format!("Protection: {}", protection));
+                    if !tag.is_empty() && tag != "Unknown" {
+                        indicators.push(format!("Tag: {}", tag));
+                    }
+                    
+                    // Determine severity and confidence based on protection flags
+                    let (severity, confidence) = if protection.contains("PAGE_EXECUTE_READWRITE") {
+                        ("High".to_string(), 85)
+                    } else if protection.contains("PAGE_EXECUTE") {
+                        ("Medium".to_string(), 70)
+                    } else {
+                        ("Low".to_string(), 50)
+                    };
+                    
+                    let details = format!(
+                        "Suspicious memory region detected at {}-{} with {} protection",
+                        start_vpn, end_vpn, protection
+                    );
+
+                    detections.push(crate::types::MalwareDetection {
+                        pid,
+                        process_name,
+                        detection_type: "Code Injection".to_string(),
+                        severity,
+                        confidence,
+                        indicators,
+                        details,
+                    });
+                }
+            }
+
+            Ok(detections)
+        })
+    }
+
     /// List handles opened by processes
     ///
     /// Uses the Handles plugin to enumerate process handles
