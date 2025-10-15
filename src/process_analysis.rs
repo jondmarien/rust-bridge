@@ -333,15 +333,142 @@ results = run_cmdline('{}')
     /// Uses the DllList plugin to enumerate loaded modules
     pub fn list_dlls(
         &self,
-        _context: &VolatilityContext,
-        _pid: Option<u32>,
-    ) -> MemoryAnalysisResult<Vec<DllInfo>> {
+        context: &VolatilityContext,
+        pid_filter: Option<u32>,
+    ) -> MemoryAnalysisResult<Vec<crate::types::DllInfo>> {
         PythonManager::with_gil(|py| {
-            // Import required modules
-            let _vol3 = py.import("volatility3.framework")?;
+            // Build Python code with optional PID filter
+            let pid_filter_code = if let Some(pid) = pid_filter {
+                format!("pid_filter = {}", pid)
+            } else {
+                "pid_filter = None".to_string()
+            };
 
-            // Placeholder implementation
-            let dlls = vec![];
+            // Execute Python code that runs the DllList plugin
+            let python_code = format!(
+                r#"
+import sys
+from volatility3 import framework
+from volatility3.framework import contexts, plugins, automagic
+from volatility3.plugins.windows import dlllist
+
+def run_dlllist(dump_path, pid_filter=None):
+    # Create context
+    ctx = contexts.Context()
+    
+    # Set the dump file location
+    file_url = 'file:///' + dump_path.replace('\\', '/')
+    ctx.config['automagic.LayerStacker.single_location'] = file_url
+    
+    # Setup plugin
+    plugin_class = dlllist.DllList
+    base_config_path = 'plugins'
+    
+    # Get available automagics
+    automagics = automagic.available(ctx)
+    
+    # Choose automagics for the plugin
+    plugin_list = automagic.choose_automagic(automagics, plugin_class)
+    
+    # Run automagics to populate configuration
+    errors = automagic.run(plugin_list, ctx, plugin_class, base_config_path, None)
+    if errors:
+        raise Exception(f"Automagic failed with errors: {{errors}}")
+    
+    # Construct the plugin with optional PID filter
+    if pid_filter is not None:
+        ctx.config['plugins.DllList.pid'] = [pid_filter]
+    
+    plugin = plugins.construct_plugin(ctx, plugin_list, plugin_class, base_config_path, None, None)
+    
+    # Run the plugin
+    treegrid = plugin.run()
+    
+    # Collect results
+    results = []
+    def visitor(node, accumulator):
+        if accumulator is not None:
+            accumulator.append(node)
+        return accumulator
+    
+    treegrid.populate(visitor, results)
+    
+    return results
+
+{}
+results = run_dlllist('{}', pid_filter)
+"#,
+                pid_filter_code,
+                context.dump_path().replace("\\", "\\\\")
+            );
+
+            // Use exec to run the Python code
+            let builtins = py.import("builtins")?;
+            let exec_fn = builtins.getattr("exec")?;
+            let globals = pyo3::types::PyDict::new(py);
+            globals.set_item("__builtins__", builtins)?;
+            exec_fn.call1((&python_code, &globals))?;
+
+            // Get results from globals
+            let results = globals.get_item("results")?;
+            let dll_list = results.downcast::<pyo3::types::PyList>()?;
+
+            // Extract DLL information from the treegrid rows
+            let mut dlls = Vec::new();
+
+            for row in dll_list.iter() {
+                // Each row is a TreeNode object with a 'values' attribute
+                let node_values = row.getattr("values")?;
+                let values = node_values.downcast::<pyo3::types::PyList>()?;
+
+                // Expected columns: PID, Process, Base, Size, Name, Path
+                if values.len() >= 6 {
+                    // Extract PID
+                    let pid: u32 = values.get_item(0)?
+                        .str()?
+                        .to_string()
+                        .parse()
+                        .unwrap_or(0);
+                    
+                    // Extract process name
+                    let process_name: String = values.get_item(1)?
+                        .extract()
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    
+                    // Extract base address
+                    let base_address: String = values.get_item(2)?
+                        .str()?
+                        .to_string();
+                    
+                    // Extract size
+                    let size: u64 = values.get_item(3)?
+                        .str()?
+                        .to_string()
+                        .parse()
+                        .unwrap_or(0);
+                    
+                    // Extract DLL name
+                    let dll_name: String = values.get_item(4)?
+                        .extract()
+                        .unwrap_or_else(|_| "Unknown".to_string());
+                    
+                    // Extract DLL path - handle potential UnreadableValue
+                    let dll_path: String = values.get_item(5)?
+                        .str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|_| "<unreadable>".to_string());
+
+                    dlls.push(crate::types::DllInfo {
+                        pid,
+                        process_name,
+                        base_address,
+                        size,
+                        dll_name,
+                        dll_path,
+                    });
+                }
+            }
+
             Ok(dlls)
         })
     }

@@ -226,12 +226,24 @@ pub struct CommandLineInfo {
     pub command_line: String,
 }
 
+/// DLL information for a process
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DllInfo {
+    pub pid: u32,
+    pub process_name: String,
+    pub base_address: String,
+    pub size: u64,
+    pub dll_name: String,
+    pub dll_path: String,
+}
+
 // Implement JsonSerializable for common types
 impl JsonSerializable for VersionInfo {}
 impl JsonSerializable for PluginInfo {}
 impl JsonSerializable for DumpMetadata {}
 impl JsonSerializable for KeyValue {}
 impl JsonSerializable for CommandLineInfo {}
+impl JsonSerializable for DllInfo {}
 
 #[cfg(test)]
 mod tests {
