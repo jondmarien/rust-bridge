@@ -1,5 +1,5 @@
-use rust_bridge::{ProcessInfo, DllInfo};
-use rust_bridge::types::{CommandLineInfo, NetworkConnectionInfo, MalwareDetection, VersionInfo};
+use rust_bridge::types::{CommandLineInfo, MalwareDetection, NetworkConnectionInfo, VersionInfo};
+use rust_bridge::{DllInfo, ProcessInfo};
 
 // ProcessInfo tests (from process_analysis.rs)
 #[test]
@@ -13,7 +13,7 @@ fn test_process_info_creation() {
         handles: 512,
         create_time: "2025-01-01 12:00:00".to_string(),
     };
-    
+
     assert_eq!(process.pid, 1234);
     assert_eq!(process.ppid, 100);
     assert_eq!(process.name, "explorer.exe");
@@ -31,7 +31,7 @@ fn test_process_info_json_serialization() {
         handles: 256,
         create_time: "2025-01-01 10:30:45".to_string(),
     };
-    
+
     let json = serde_json::to_string(&process).unwrap();
     assert!(json.contains("4096"));
     assert!(json.contains("svchost.exe"));
@@ -48,7 +48,7 @@ fn test_dll_info_creation() {
         name: "kernel32.dll".to_string(),
         path: "C:\\Windows\\System32\\kernel32.dll".to_string(),
     };
-    
+
     assert_eq!(dll.pid, 1234);
     assert_eq!(dll.name, "kernel32.dll");
 }
@@ -63,7 +63,7 @@ fn test_dll_info_json_serialization() {
         name: "kernel32.dll".to_string(),
         path: "C:\\Windows\\System32\\kernel32.dll".to_string(),
     };
-    
+
     let json = serde_json::to_string(&dll).unwrap();
     assert!(json.contains("kernel32.dll"));
     assert!(json.contains("1234"));
@@ -77,7 +77,7 @@ fn test_command_line_info() {
         process_name: "cmd.exe".to_string(),
         command_line: "cmd.exe /c dir".to_string(),
     };
-    
+
     assert_eq!(cmdline.pid, 1234);
     assert_eq!(cmdline.command_line, "cmd.exe /c dir");
 }
@@ -89,7 +89,7 @@ fn test_command_line_json() {
         process_name: "powershell.exe".to_string(),
         command_line: "powershell.exe -File script.ps1".to_string(),
     };
-    
+
     let json = serde_json::to_string(&cmdline).unwrap();
     assert!(json.contains("5678"));
     assert!(json.contains("powershell.exe"));
@@ -109,7 +109,7 @@ fn test_network_connection_info() {
         state: "ESTABLISHED".to_string(),
         created_time: "2025-01-01 12:00:00".to_string(),
     };
-    
+
     assert_eq!(conn.protocol, "TCPv4");
     assert_eq!(conn.state, "ESTABLISHED");
 }
@@ -127,7 +127,7 @@ fn test_network_connection_json() {
         state: "LISTENING".to_string(),
         created_time: "2025-01-01 13:00:00".to_string(),
     };
-    
+
     let json = serde_json::to_string(&conn).unwrap();
     assert!(json.contains("9999"));
     assert!(json.contains("TCPv6"));
@@ -142,10 +142,13 @@ fn test_malware_detection() {
         detection_type: "Code Injection".to_string(),
         severity: "High".to_string(),
         confidence: 85,
-        indicators: vec!["VirtualAllocEx".to_string(), "WriteProcessMemory".to_string()],
+        indicators: vec![
+            "VirtualAllocEx".to_string(),
+            "WriteProcessMemory".to_string(),
+        ],
         details: "Detected suspicious memory allocation".to_string(),
     };
-    
+
     assert_eq!(detection.confidence, 85);
     assert_eq!(detection.severity, "High");
     assert_eq!(detection.indicators.len(), 2);
@@ -162,7 +165,7 @@ fn test_malware_detection_json() {
         indicators: vec!["SSDT Hook".to_string()],
         details: "Detected kernel hooks".to_string(),
     };
-    
+
     let json = serde_json::to_string(&detection).unwrap();
     assert!(json.contains("Rootkit"));
     assert!(json.contains("95"));
@@ -176,7 +179,7 @@ fn test_version_info() {
         volatility_version: "3.2.26".to_string(),
         python_version: "3.12.11".to_string(),
     };
-    
+
     assert_eq!(version.rust_bridge_version, "0.1.0");
     assert_eq!(version.python_version, "3.12.11");
 }
@@ -188,7 +191,7 @@ fn test_version_info_json() {
         volatility_version: "3.2.27".to_string(),
         python_version: "3.13.0".to_string(),
     };
-    
+
     let json = serde_json::to_string(&version).unwrap();
     assert!(json.contains("0.2.0"));
     assert!(json.contains("3.13.0"));
@@ -199,7 +202,7 @@ fn test_version_info_json() {
 fn test_process_info_deserialization() {
     let json = r#"{"pid":1234,"ppid":100,"name":"test.exe","offset":"0x1000","threads":4,"handles":100,"create_time":"2025-01-01"}"#;
     let process: ProcessInfo = serde_json::from_str(json).unwrap();
-    
+
     assert_eq!(process.pid, 1234);
     assert_eq!(process.name, "test.exe");
 }

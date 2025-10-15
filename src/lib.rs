@@ -3,33 +3,32 @@
 //! This library provides a high-performance bridge between Rust and Python,
 //! enabling PowerShell cmdlets to interact with Volatility 3 framework.
 
-use pyo3::prelude::*;
 use anyhow::Result;
+use pyo3::prelude::*;
 
 // Module declarations
-mod python_manager;
-pub mod error;  // Made public for tests
-mod volatility;
+pub mod error; // Made public for tests
 mod process_analysis;
-pub mod types;  // Made public for tests
+mod python_manager;
+pub mod types;
+mod volatility; // Made public for tests
 
 pub use error::{MemoryAnalysisError, MemoryAnalysisResult};
+pub use process_analysis::{DllInfo, HandleInfo, ProcessAnalyzer, ProcessDetails, ProcessInfo};
 pub use python_manager::PythonManager;
-pub use volatility::{VolatilityAnalyzer, VolatilityContext};
-pub use process_analysis::{ProcessAnalyzer, ProcessInfo, ProcessDetails, DllInfo, HandleInfo};
 pub use types::{
-    AnalysisResult, AnalysisMetadata, VersionInfo, PluginInfo, DumpMetadata,
-    KeyValue, PyConverter, JsonSerializable,
-    CommandLineInfo, NetworkConnectionInfo, MalwareDetection,
+    AnalysisMetadata, AnalysisResult, CommandLineInfo, DumpMetadata, JsonSerializable, KeyValue,
+    MalwareDetection, NetworkConnectionInfo, PluginInfo, PyConverter, VersionInfo,
 };
+pub use volatility::{VolatilityAnalyzer, VolatilityContext};
 
 /// Initialize the Rust-Python bridge
 ///
 /// This should be called before any other operations
 pub fn initialize() -> Result<()> {
     Python::initialize();
-    
-    // Verify Python interpreter is available  
+
+    // Verify Python interpreter is available
     Python::attach(|py| {
         let version = py.version_info();
         if is_debug_enabled() {
@@ -39,29 +38,27 @@ pub fn initialize() -> Result<()> {
             );
         }
     });
-    
+
     Ok(())
 }
 
 /// Check if Volatility3 is available in the Python environment
 pub fn check_volatility_available() -> Result<bool> {
     PythonManager::initialize()?;
-    
-    let result = PythonManager::with_gil(|py| {
-        match py.import("volatility3") {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false),
-        }
+
+    let result = PythonManager::with_gil(|py| match py.import("volatility3") {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
     })?;
-    
+
     Ok(result)
 }
 
 // FFI exports for C# interop
 use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 // Global debug flag controlled by environment variable
@@ -88,10 +85,15 @@ fn log_debug(msg: &str) {
     if !is_debug_enabled() {
         return;
     }
-    
+
     let log_path = "J:\\projects\\personal-projects\\MemoryAnalysis\\rust-bridge-debug.log";
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
-        let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), msg);
+        let _ = writeln!(
+            file,
+            "[{}] {}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            msg
+        );
     }
     eprintln!("[rust_bridge] {}", msg);
 }
@@ -101,7 +103,7 @@ fn log_debug(msg: &str) {
 pub extern "C" fn rust_bridge_initialize() -> i32 {
     // Initialize debug mode from environment
     init_debug_mode();
-    
+
     match initialize() {
         Ok(_) => 0,
         Err(_) => -1,
@@ -126,14 +128,12 @@ pub extern "C" fn rust_bridge_get_version() -> *mut c_char {
         volatility_version: "2.26.2".to_string(),
         python_version: "3.12.11".to_string(),
     };
-    
+
     match serde_json::to_string(&version) {
-        Ok(json) => {
-            match CString::new(json) {
-                Ok(c_str) => c_str.into_raw(),
-                Err(_) => std::ptr::null_mut(),
-            }
-        }
+        Ok(json) => match CString::new(json) {
+            Ok(c_str) => c_str.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
         Err(_) => std::ptr::null_mut(),
     }
 }
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) ->
         log_debug("Error: dump_path is null");
         return std::ptr::null_mut();
     }
-    
+
     let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
@@ -175,9 +175,9 @@ pub unsafe extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) ->
             return std::ptr::null_mut();
         }
     };
-    
+
     log_debug(&format!("Processing dump: {}", path_str));
-    
+
     // Create analyzer and context
     let analyzer = match ProcessAnalyzer::new() {
         Ok(a) => a,
@@ -186,11 +186,11 @@ pub unsafe extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) ->
             return std::ptr::null_mut();
         }
     };
-    
+
     let context = VolatilityContext {
         dump_path: path_str.to_string(),
     };
-    
+
     // Get process list
     let processes = match analyzer.list_processes(&context) {
         Ok(procs) => procs,
@@ -199,9 +199,12 @@ pub unsafe extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) ->
             return std::ptr::null_mut();
         }
     };
-    
-    log_debug(&format!("Successfully extracted {} processes", processes.len()));
-    
+
+    log_debug(&format!(
+        "Successfully extracted {} processes",
+        processes.len()
+    ));
+
     // Serialize to JSON
     let json = match serde_json::to_string(&processes) {
         Ok(j) => j,
@@ -210,7 +213,7 @@ pub unsafe extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) ->
             return std::ptr::null_mut();
         }
     };
-    
+
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
         Err(e) => {
@@ -233,7 +236,7 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
         log_debug("Error: dump_path is null");
         return std::ptr::null_mut();
     }
-    
+
     let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
@@ -242,9 +245,9 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
             return std::ptr::null_mut();
         }
     };
-    
+
     log_debug(&format!("Getting command lines from dump: {}", path_str));
-    
+
     // Create analyzer and context
     let analyzer = match ProcessAnalyzer::new() {
         Ok(a) => a,
@@ -253,11 +256,11 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
             return std::ptr::null_mut();
         }
     };
-    
+
     let context = VolatilityContext {
         dump_path: path_str.to_string(),
     };
-    
+
     // Get command lines
     let command_lines = match analyzer.get_command_lines(&context) {
         Ok(cmds) => cmds,
@@ -266,9 +269,12 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
             return std::ptr::null_mut();
         }
     };
-    
-    log_debug(&format!("Successfully extracted {} command lines", command_lines.len()));
-    
+
+    log_debug(&format!(
+        "Successfully extracted {} command lines",
+        command_lines.len()
+    ));
+
     // Serialize to JSON
     let json = match serde_json::to_string(&command_lines) {
         Ok(j) => j,
@@ -277,7 +283,7 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
             return std::ptr::null_mut();
         }
     };
-    
+
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
         Err(e) => {
@@ -288,7 +294,7 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
 }
 
 /// List DLLs for processes in a memory dump (FFI export)
-/// 
+///
 /// # Parameters
 /// * `dump_path` - Path to the memory dump file
 /// * `pid` - Optional process ID to filter by (0 = no filter)
@@ -299,15 +305,12 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
 /// - `dump_path` is a valid pointer to a null-terminated C string
 /// - The memory remains valid for the duration of this call
 #[no_mangle]
-pub unsafe extern "C" fn rust_bridge_list_dlls(
-    dump_path: *const c_char,
-    pid: u32,
-) -> *mut c_char {
+pub unsafe extern "C" fn rust_bridge_list_dlls(dump_path: *const c_char, pid: u32) -> *mut c_char {
     if dump_path.is_null() {
         log_debug("Error: dump_path is null");
         return std::ptr::null_mut();
     }
-    
+
     let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
@@ -316,16 +319,19 @@ pub unsafe extern "C" fn rust_bridge_list_dlls(
             return std::ptr::null_mut();
         }
     };
-    
+
     let pid_filter = if pid == 0 { None } else { Some(pid) };
     let filter_msg = if let Some(p) = pid_filter {
         format!(" (filtered to PID {})", p)
     } else {
         String::new()
     };
-    
-    log_debug(&format!("Listing DLLs from dump: {}{}", path_str, filter_msg));
-    
+
+    log_debug(&format!(
+        "Listing DLLs from dump: {}{}",
+        path_str, filter_msg
+    ));
+
     // Create analyzer and context
     let analyzer = match ProcessAnalyzer::new() {
         Ok(a) => a,
@@ -334,11 +340,11 @@ pub unsafe extern "C" fn rust_bridge_list_dlls(
             return std::ptr::null_mut();
         }
     };
-    
+
     let context = VolatilityContext {
         dump_path: path_str.to_string(),
     };
-    
+
     // Get DLL list
     let dlls = match analyzer.list_dlls(&context, pid_filter) {
         Ok(dll_list) => dll_list,
@@ -347,9 +353,9 @@ pub unsafe extern "C" fn rust_bridge_list_dlls(
             return std::ptr::null_mut();
         }
     };
-    
+
     log_debug(&format!("Successfully extracted {} DLLs", dlls.len()));
-    
+
     // Serialize to JSON
     let json = match serde_json::to_string(&dlls) {
         Ok(j) => j,
@@ -358,7 +364,7 @@ pub unsafe extern "C" fn rust_bridge_list_dlls(
             return std::ptr::null_mut();
         }
     };
-    
+
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
         Err(e) => {
@@ -369,7 +375,7 @@ pub unsafe extern "C" fn rust_bridge_list_dlls(
 }
 
 /// Scan network connections in a memory dump (FFI export)
-/// 
+///
 /// # Parameters
 /// * `dump_path` - Path to the memory dump file
 ///
@@ -386,7 +392,7 @@ pub unsafe extern "C" fn rust_bridge_scan_network_connections(
         log_debug("Error: dump_path is null");
         return std::ptr::null_mut();
     }
-    
+
     let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
@@ -395,9 +401,12 @@ pub unsafe extern "C" fn rust_bridge_scan_network_connections(
             return std::ptr::null_mut();
         }
     };
-    
-    log_debug(&format!("Scanning network connections from dump: {}", path_str));
-    
+
+    log_debug(&format!(
+        "Scanning network connections from dump: {}",
+        path_str
+    ));
+
     // Create analyzer and context
     let analyzer = match ProcessAnalyzer::new() {
         Ok(a) => a,
@@ -406,11 +415,11 @@ pub unsafe extern "C" fn rust_bridge_scan_network_connections(
             return std::ptr::null_mut();
         }
     };
-    
+
     let context = VolatilityContext {
         dump_path: path_str.to_string(),
     };
-    
+
     // Scan network connections
     let connections = match analyzer.scan_network_connections(&context) {
         Ok(conn_list) => conn_list,
@@ -419,9 +428,12 @@ pub unsafe extern "C" fn rust_bridge_scan_network_connections(
             return std::ptr::null_mut();
         }
     };
-    
-    log_debug(&format!("Successfully extracted {} network connections", connections.len()));
-    
+
+    log_debug(&format!(
+        "Successfully extracted {} network connections",
+        connections.len()
+    ));
+
     // Serialize to JSON
     let json = match serde_json::to_string(&connections) {
         Ok(j) => j,
@@ -430,7 +442,7 @@ pub unsafe extern "C" fn rust_bridge_scan_network_connections(
             return std::ptr::null_mut();
         }
     };
-    
+
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
         Err(e) => {
@@ -441,7 +453,7 @@ pub unsafe extern "C" fn rust_bridge_scan_network_connections(
 }
 
 /// Detect malware in a memory dump (FFI export)
-/// 
+///
 /// # Parameters
 /// * `dump_path` - Path to the memory dump file
 ///
@@ -451,14 +463,12 @@ pub unsafe extern "C" fn rust_bridge_scan_network_connections(
 /// - `dump_path` is a valid pointer to a null-terminated C string
 /// - The memory remains valid for the duration of this call
 #[no_mangle]
-pub unsafe extern "C" fn rust_bridge_detect_malware(
-    dump_path: *const c_char,
-) -> *mut c_char {
+pub unsafe extern "C" fn rust_bridge_detect_malware(dump_path: *const c_char) -> *mut c_char {
     if dump_path.is_null() {
         log_debug("Error: dump_path is null");
         return std::ptr::null_mut();
     }
-    
+
     let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
         Ok(s) => s,
@@ -467,9 +477,9 @@ pub unsafe extern "C" fn rust_bridge_detect_malware(
             return std::ptr::null_mut();
         }
     };
-    
+
     log_debug(&format!("Detecting malware in dump: {}", path_str));
-    
+
     // Create analyzer and context
     let analyzer = match ProcessAnalyzer::new() {
         Ok(a) => a,
@@ -478,11 +488,11 @@ pub unsafe extern "C" fn rust_bridge_detect_malware(
             return std::ptr::null_mut();
         }
     };
-    
+
     let context = VolatilityContext {
         dump_path: path_str.to_string(),
     };
-    
+
     // Detect malware
     let detections = match analyzer.detect_malware(&context) {
         Ok(detections_list) => detections_list,
@@ -491,9 +501,12 @@ pub unsafe extern "C" fn rust_bridge_detect_malware(
             return std::ptr::null_mut();
         }
     };
-    
-    log_debug(&format!("Found {} potential malware detections", detections.len()));
-    
+
+    log_debug(&format!(
+        "Found {} potential malware detections",
+        detections.len()
+    ));
+
     // Serialize to JSON
     let json = match serde_json::to_string(&detections) {
         Ok(j) => j,
@@ -502,7 +515,7 @@ pub unsafe extern "C" fn rust_bridge_detect_malware(
             return std::ptr::null_mut();
         }
     };
-    
+
     match CString::new(json) {
         Ok(c_str) => c_str.into_raw(),
         Err(e) => {

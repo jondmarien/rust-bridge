@@ -147,34 +147,29 @@ results = run_pslist(r'{}')
                 // Expected columns: PID, PPID, ImageFileName, Offset(V), Threads, Handles, SessionId, Wow64, CreateTime, ExitTime
                 if values.len() >= 6 {
                     // Extract values - PID/PPID are Pointer types, need to convert via str
-                    let pid: u32 = values.get_item(0)?
-                        .str()?
-                        .to_string()
-                        .parse()
-                        .unwrap_or(0);
-                    let ppid: u32 = values.get_item(1)?
-                        .str()?
-                        .to_string()
-                        .parse()
-                        .unwrap_or(0);
-                    
+                    let pid: u32 = values.get_item(0)?.str()?.to_string().parse().unwrap_or(0);
+                    let ppid: u32 = values.get_item(1)?.str()?.to_string().parse().unwrap_or(0);
+
                     // Name is a string
-                    let name: String = values.get_item(2)?
+                    let name: String = values
+                        .get_item(2)?
                         .extract()
                         .unwrap_or_else(|_| "Unknown".to_string());
-                    
+
                     // Offset is an integer
-                    let offset: String = format!("{:#x}", values.get_item(3)?.extract::<u64>().unwrap_or(0));
-                    
+                    let offset: String =
+                        format!("{:#x}", values.get_item(3)?.extract::<u64>().unwrap_or(0));
+
                     // Threads is an integer
                     let threads: u32 = values.get_item(4)?.extract().unwrap_or(0);
-                    
+
                     // Handles might be UnreadableValue - try to extract or default to 0
                     let handles: u32 = values.get_item(5)?.extract().unwrap_or(0);
 
                     // CreateTime at index 8 - convert to string
                     let create_time: String = if values.len() > 8 {
-                        values.get_item(8)?
+                        values
+                            .get_item(8)?
                             .str()
                             .map(|s| s.to_string())
                             .unwrap_or_else(|_| "N/A".to_string())
@@ -299,19 +294,17 @@ results = run_cmdline(r'{}')
                 // Expected columns: PID, Process, Args
                 if values.len() >= 3 {
                     // Extract PID
-                    let pid: u32 = values.get_item(0)?
-                        .str()?
-                        .to_string()
-                        .parse()
-                        .unwrap_or(0);
-                    
+                    let pid: u32 = values.get_item(0)?.str()?.to_string().parse().unwrap_or(0);
+
                     // Extract process name
-                    let process_name: String = values.get_item(1)?
+                    let process_name: String = values
+                        .get_item(1)?
                         .extract()
                         .unwrap_or_else(|_| "Unknown".to_string());
-                    
+
                     // Extract command line - handle potential UnreadableValue
-                    let command_line: String = values.get_item(2)?
+                    let command_line: String = values
+                        .get_item(2)?
                         .str()
                         .map(|s| s.to_string())
                         .unwrap_or_else(|_| "<unreadable>".to_string());
@@ -424,36 +417,29 @@ results = run_dlllist(r'{}', pid_filter)
                 // Expected columns: PID, Process, Base, Size, Name, Path
                 if values.len() >= 6 {
                     // Extract PID
-                    let pid: u32 = values.get_item(0)?
-                        .str()?
-                        .to_string()
-                        .parse()
-                        .unwrap_or(0);
-                    
+                    let pid: u32 = values.get_item(0)?.str()?.to_string().parse().unwrap_or(0);
+
                     // Extract process name
-                    let process_name: String = values.get_item(1)?
+                    let process_name: String = values
+                        .get_item(1)?
                         .extract()
                         .unwrap_or_else(|_| "Unknown".to_string());
-                    
+
                     // Extract base address
-                    let base_address: String = values.get_item(2)?
-                        .str()?
-                        .to_string();
-                    
+                    let base_address: String = values.get_item(2)?.str()?.to_string();
+
                     // Extract size
-                    let size: u64 = values.get_item(3)?
-                        .str()?
-                        .to_string()
-                        .parse()
-                        .unwrap_or(0);
-                    
+                    let size: u64 = values.get_item(3)?.str()?.to_string().parse().unwrap_or(0);
+
                     // Extract DLL name
-                    let dll_name: String = values.get_item(4)?
+                    let dll_name: String = values
+                        .get_item(4)?
                         .extract()
                         .unwrap_or_else(|_| "Unknown".to_string());
-                    
+
                     // Extract DLL path - handle potential UnreadableValue
-                    let dll_path: String = values.get_item(5)?
+                    let dll_path: String = values
+                        .get_item(5)?
                         .str()
                         .map(|s| s.to_string())
                         .unwrap_or_else(|_| "<unreadable>".to_string());
@@ -556,53 +542,49 @@ results = run_netscan(r'{}')
                 // Expected columns: Offset, Proto, LocalAddr, LocalPort, ForeignAddr, ForeignPort, State, PID, Owner, Created
                 if values.len() >= 10 {
                     // Extract PID (index 7)
-                    let pid: u32 = values.get_item(7)?
-                        .str()?
-                        .to_string()
-                        .parse()
-                        .unwrap_or(0);
-                    
+                    let pid: u32 = values.get_item(7)?.str()?.to_string().parse().unwrap_or(0);
+
                     // Extract process name/owner (index 8)
-                    let process_name: String = values.get_item(8)?
+                    let process_name: String = values
+                        .get_item(8)?
                         .extract()
                         .unwrap_or_else(|_| "Unknown".to_string());
-                    
+
                     // Extract protocol (index 1)
-                    let protocol: String = values.get_item(1)?
+                    let protocol: String = values
+                        .get_item(1)?
                         .extract()
                         .unwrap_or_else(|_| "Unknown".to_string());
-                    
+
                     // Extract local address (index 2)
-                    let local_address: String = values.get_item(2)?
+                    let local_address: String = values
+                        .get_item(2)?
                         .extract()
                         .unwrap_or_else(|_| "0.0.0.0".to_string());
-                    
+
                     // Extract local port (index 3)
-                    let local_port: u16 = values.get_item(3)?
-                        .str()?
-                        .to_string()
-                        .parse()
-                        .unwrap_or(0);
-                    
+                    let local_port: u16 =
+                        values.get_item(3)?.str()?.to_string().parse().unwrap_or(0);
+
                     // Extract foreign address (index 4)
-                    let foreign_address: String = values.get_item(4)?
+                    let foreign_address: String = values
+                        .get_item(4)?
                         .extract()
                         .unwrap_or_else(|_| "0.0.0.0".to_string());
-                    
+
                     // Extract foreign port (index 5)
-                    let foreign_port: u16 = values.get_item(5)?
-                        .str()?
-                        .to_string()
-                        .parse()
-                        .unwrap_or(0);
-                    
+                    let foreign_port: u16 =
+                        values.get_item(5)?.str()?.to_string().parse().unwrap_or(0);
+
                     // Extract state (index 6)
-                    let state: String = values.get_item(6)?
+                    let state: String = values
+                        .get_item(6)?
                         .extract()
                         .unwrap_or_else(|_| "UNKNOWN".to_string());
-                    
+
                     // Extract created time (index 9) - handle potential UnreadableValue
-                    let created_time: String = values.get_item(9)?
+                    let created_time: String = values
+                        .get_item(9)?
                         .str()
                         .map(|s| s.to_string())
                         .unwrap_or_else(|_| "N/A".to_string());
@@ -710,37 +692,32 @@ results = run_malfind(r'{}')
                 // Expected columns: PID, Process, Start VPN, End VPN, Tag, Protection, Hexdump, Disasm
                 if values.len() >= 8 {
                     // Extract PID (index 0)
-                    let pid: u32 = values.get_item(0)?
-                        .str()?
-                        .to_string()
-                        .parse()
-                        .unwrap_or(0);
-                    
+                    let pid: u32 = values.get_item(0)?.str()?.to_string().parse().unwrap_or(0);
+
                     // Extract process name (index 1)
-                    let process_name: String = values.get_item(1)?
+                    let process_name: String = values
+                        .get_item(1)?
                         .extract()
                         .unwrap_or_else(|_| "Unknown".to_string());
-                    
+
                     // Extract memory region start (index 2)
-                    let start_vpn: String = values.get_item(2)?
-                        .str()?
-                        .to_string();
-                    
+                    let start_vpn: String = values.get_item(2)?.str()?.to_string();
+
                     // Extract memory region end (index 3)
-                    let end_vpn: String = values.get_item(3)?
-                        .str()?
-                        .to_string();
-                    
+                    let end_vpn: String = values.get_item(3)?.str()?.to_string();
+
                     // Extract tag (index 4)
-                    let tag: String = values.get_item(4)?
+                    let tag: String = values
+                        .get_item(4)?
                         .extract()
                         .unwrap_or_else(|_| "Unknown".to_string());
-                    
+
                     // Extract protection (index 5)
-                    let protection: String = values.get_item(5)?
+                    let protection: String = values
+                        .get_item(5)?
                         .extract()
                         .unwrap_or_else(|_| "Unknown".to_string());
-                    
+
                     // Build indicators list
                     let mut indicators = Vec::new();
                     indicators.push(format!("Memory region: {} - {}", start_vpn, end_vpn));
@@ -748,7 +725,7 @@ results = run_malfind(r'{}')
                     if !tag.is_empty() && tag != "Unknown" {
                         indicators.push(format!("Tag: {}", tag));
                     }
-                    
+
                     // Determine severity and confidence based on protection flags
                     let (severity, confidence) = if protection.contains("PAGE_EXECUTE_READWRITE") {
                         ("High".to_string(), 85)
@@ -757,7 +734,7 @@ results = run_malfind(r'{}')
                     } else {
                         ("Low".to_string(), 50)
                     };
-                    
+
                     let details = format!(
                         "Suspicious memory region detected at {}-{} with {} protection",
                         start_vpn, end_vpn, protection

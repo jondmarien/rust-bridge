@@ -1,25 +1,25 @@
-use std::fmt;
-use pyo3::PyErr;
 use pyo3::types::PyTracebackMethods;
+use pyo3::PyErr;
+use std::fmt;
 
 /// Custom error type for memory analysis operations
 #[derive(Debug)]
 pub enum MemoryAnalysisError {
     /// Python-related errors
     PythonError(String),
-    
+
     /// Volatility3 framework errors
     VolatilityError(String),
-    
+
     /// Memory dump file errors
     DumpFileError(String),
-    
+
     /// Serialization errors
     SerializationError(String),
-    
+
     /// General I/O errors
     IoError(String),
-    
+
     /// Other errors
     Other(String),
 }
@@ -30,7 +30,9 @@ impl fmt::Display for MemoryAnalysisError {
             MemoryAnalysisError::PythonError(msg) => write!(f, "Python error: {}", msg),
             MemoryAnalysisError::VolatilityError(msg) => write!(f, "Volatility error: {}", msg),
             MemoryAnalysisError::DumpFileError(msg) => write!(f, "Dump file error: {}", msg),
-            MemoryAnalysisError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
+            MemoryAnalysisError::SerializationError(msg) => {
+                write!(f, "Serialization error: {}", msg)
+            }
             MemoryAnalysisError::IoError(msg) => write!(f, "I/O error: {}", msg),
             MemoryAnalysisError::Other(msg) => write!(f, "Error: {}", msg),
         }
@@ -44,7 +46,8 @@ impl From<PyErr> for MemoryAnalysisError {
         use pyo3::Python;
         // Try to get more detailed error information including traceback
         let detailed_msg = Python::attach(|py| {
-            let traceback = err.traceback(py)
+            let traceback = err
+                .traceback(py)
                 .and_then(|tb| tb.format().ok())
                 .unwrap_or_else(|| "(no traceback available)".to_string());
             format!("{}\n{}", err, traceback)
