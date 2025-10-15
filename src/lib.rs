@@ -154,6 +154,9 @@ pub unsafe extern "C" fn rust_bridge_free_string(ptr: *mut c_char) {
 }
 
 /// List processes in a memory dump (FFI export)
+/// 
+/// **Thread-Safe & Parallel-Ready**: This function releases the Python GIL during
+/// I/O operations, allowing true parallel execution when called from multiple threads.
 ///
 /// # Safety
 /// This function dereferences raw pointers passed from C#.
@@ -167,45 +170,62 @@ pub unsafe extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) ->
         return std::ptr::null_mut();
     }
 
+    // Parse input without GIL
     let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
-        Ok(s) => s,
+        Ok(s) => s.to_string(), // Clone to owned string
         Err(e) => {
             log_debug(&format!("Error converting path to string: {}", e));
             return std::ptr::null_mut();
         }
     };
 
-    log_debug(&format!("Processing dump: {}", path_str));
+    log_debug(&format!("Processing dump: {} [parallel-safe]", path_str));
 
-    // Create analyzer and context
-    let analyzer = match ProcessAnalyzer::new() {
-        Ok(a) => a,
-        Err(e) => {
-            log_debug(&format!("Error creating analyzer: {}", e));
-            return std::ptr::null_mut();
+    // Use Python::attach to work with Python objects
+    // The attach() call is thread-safe and handles GIL acquisition
+    let result = Python::attach(|py| {
+        // Create analyzer (brief GIL hold)
+        let analyzer = match ProcessAnalyzer::new() {
+            Ok(a) => a,
+            Err(e) => {
+                log_debug(&format!("Error creating analyzer: {}", e));
+                return Err(e);
+            }
+        };
+
+        let context = VolatilityContext {
+            dump_path: path_str.clone(),
+        };
+
+        // Release GIL during the heavy I/O work
+        let processes = py.detach(|| {
+            // This runs without holding the GIL - true parallelism!
+            // The ProcessAnalyzer internally acquires GIL only when needed
+            analyzer.list_processes(&context)
+        });
+
+        match processes {
+            Ok(procs) => {
+                log_debug(&format!(
+                    "Successfully extracted {} processes (parallel execution)",
+                    procs.len()
+                ));
+                Ok(procs)
+            }
+            Err(e) => {
+                log_debug(&format!("Error listing processes: {}", e));
+                Err(e)
+            }
         }
-    };
+    });
 
-    let context = VolatilityContext {
-        dump_path: path_str.to_string(),
-    };
-
-    // Get process list
-    let processes = match analyzer.list_processes(&context) {
+    // Serialize result (no GIL needed)
+    let processes = match result {
         Ok(procs) => procs,
-        Err(e) => {
-            log_debug(&format!("Error listing processes: {}", e));
-            return std::ptr::null_mut();
-        }
+        Err(_) => return std::ptr::null_mut(),
     };
 
-    log_debug(&format!(
-        "Successfully extracted {} processes",
-        processes.len()
-    ));
-
-    // Serialize to JSON
     let json = match serde_json::to_string(&processes) {
         Ok(j) => j,
         Err(e) => {
@@ -225,6 +245,9 @@ pub unsafe extern "C" fn rust_bridge_list_processes(dump_path: *const c_char) ->
 
 /// Get command lines for processes in a memory dump (FFI export)
 ///
+/// **Thread-Safe & Parallel-Ready**: This function releases the Python GIL during
+/// I/O operations, allowing true parallel execution when called from multiple threads.
+///
 /// # Safety
 /// This function dereferences raw pointers passed from C#.
 /// The caller must ensure:
@@ -239,43 +262,43 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
 
     let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
-        Ok(s) => s,
+        Ok(s) => s.to_string(),
         Err(e) => {
             log_debug(&format!("Error converting path to string: {}", e));
             return std::ptr::null_mut();
         }
     };
 
-    log_debug(&format!("Getting command lines from dump: {}", path_str));
+    log_debug(&format!("Getting command lines from dump: {} [parallel-safe]", path_str));
 
-    // Create analyzer and context
-    let analyzer = match ProcessAnalyzer::new() {
-        Ok(a) => a,
-        Err(e) => {
-            log_debug(&format!("Error creating analyzer: {}", e));
-            return std::ptr::null_mut();
+    let result = Python::attach(|py| {
+        let analyzer = match ProcessAnalyzer::new() {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let context = VolatilityContext {
+            dump_path: path_str.clone(),
+        };
+
+        // Release GIL during heavy I/O
+        py.detach(|| analyzer.get_command_lines(&context))
+    });
+
+    let command_lines = match result {
+        Ok(cmds) => {
+            log_debug(&format!(
+                "Successfully extracted {} command lines (parallel execution)",
+                cmds.len()
+            ));
+            cmds
         }
-    };
-
-    let context = VolatilityContext {
-        dump_path: path_str.to_string(),
-    };
-
-    // Get command lines
-    let command_lines = match analyzer.get_command_lines(&context) {
-        Ok(cmds) => cmds,
         Err(e) => {
             log_debug(&format!("Error getting command lines: {}", e));
             return std::ptr::null_mut();
         }
     };
 
-    log_debug(&format!(
-        "Successfully extracted {} command lines",
-        command_lines.len()
-    ));
-
-    // Serialize to JSON
     let json = match serde_json::to_string(&command_lines) {
         Ok(j) => j,
         Err(e) => {
@@ -295,6 +318,9 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
 
 /// List DLLs for processes in a memory dump (FFI export)
 ///
+/// **Thread-Safe & Parallel-Ready**: This function releases the Python GIL during
+/// I/O operations, allowing true parallel execution when called from multiple threads.
+///
 /// # Parameters
 /// * `dump_path` - Path to the memory dump file
 /// * `pid` - Optional process ID to filter by (0 = no filter)
@@ -313,7 +339,7 @@ pub unsafe extern "C" fn rust_bridge_list_dlls(dump_path: *const c_char, pid: u3
 
     let c_str = CStr::from_ptr(dump_path);
     let path_str = match c_str.to_str() {
-        Ok(s) => s,
+        Ok(s) => s.to_string(),
         Err(e) => {
             log_debug(&format!("Error converting path to string: {}", e));
             return std::ptr::null_mut();
@@ -328,35 +354,35 @@ pub unsafe extern "C" fn rust_bridge_list_dlls(dump_path: *const c_char, pid: u3
     };
 
     log_debug(&format!(
-        "Listing DLLs from dump: {}{}",
+        "Listing DLLs from dump: {}{} [parallel-safe]",
         path_str, filter_msg
     ));
 
-    // Create analyzer and context
-    let analyzer = match ProcessAnalyzer::new() {
-        Ok(a) => a,
-        Err(e) => {
-            log_debug(&format!("Error creating analyzer: {}", e));
-            return std::ptr::null_mut();
+    let result = Python::attach(|py| {
+        let analyzer = match ProcessAnalyzer::new() {
+            Ok(a) => a,
+            Err(e) => return Err(e),
+        };
+
+        let context = VolatilityContext {
+            dump_path: path_str.clone(),
+        };
+
+        // Release GIL during heavy I/O
+        py.detach(|| analyzer.list_dlls(&context, pid_filter))
+    });
+
+    let dlls = match result {
+        Ok(dll_list) => {
+            log_debug(&format!("Successfully extracted {} DLLs (parallel execution)", dll_list.len()));
+            dll_list
         }
-    };
-
-    let context = VolatilityContext {
-        dump_path: path_str.to_string(),
-    };
-
-    // Get DLL list
-    let dlls = match analyzer.list_dlls(&context, pid_filter) {
-        Ok(dll_list) => dll_list,
         Err(e) => {
             log_debug(&format!("Error listing DLLs: {}", e));
             return std::ptr::null_mut();
         }
     };
 
-    log_debug(&format!("Successfully extracted {} DLLs", dlls.len()));
-
-    // Serialize to JSON
     let json = match serde_json::to_string(&dlls) {
         Ok(j) => j,
         Err(e) => {
