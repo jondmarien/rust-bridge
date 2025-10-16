@@ -7,12 +7,16 @@ use anyhow::Result;
 use pyo3::prelude::*;
 
 // Module declarations
+pub mod cache; // Cache system for memory analysis results
+pub mod cache_invalidation; // Cache invalidation monitoring
+pub mod cached_analyzer; // Cached process analysis
 pub mod error; // Made public for tests
 mod process_analysis;
 mod python_manager;
 pub mod types;
 mod volatility; // Made public for tests
 
+pub use cached_analyzer::{AnalyzerConfig, CacheStatsCollection, CachedProcessAnalyzer};
 pub use error::{MemoryAnalysisError, MemoryAnalysisResult};
 pub use process_analysis::{DllInfo, HandleInfo, ProcessAnalyzer, ProcessDetails, ProcessInfo};
 pub use python_manager::PythonManager;
@@ -154,7 +158,7 @@ pub unsafe extern "C" fn rust_bridge_free_string(ptr: *mut c_char) {
 }
 
 /// List processes in a memory dump (FFI export)
-/// 
+///
 /// **Thread-Safe & Parallel-Ready**: This function releases the Python GIL during
 /// I/O operations, allowing true parallel execution when called from multiple threads.
 ///
@@ -269,7 +273,10 @@ pub unsafe extern "C" fn rust_bridge_get_command_lines(dump_path: *const c_char)
         }
     };
 
-    log_debug(&format!("Getting command lines from dump: {} [parallel-safe]", path_str));
+    log_debug(&format!(
+        "Getting command lines from dump: {} [parallel-safe]",
+        path_str
+    ));
 
     let result = Python::attach(|py| {
         let analyzer = match ProcessAnalyzer::new() {
@@ -374,7 +381,10 @@ pub unsafe extern "C" fn rust_bridge_list_dlls(dump_path: *const c_char, pid: u3
 
     let dlls = match result {
         Ok(dll_list) => {
-            log_debug(&format!("Successfully extracted {} DLLs (parallel execution)", dll_list.len()));
+            log_debug(&format!(
+                "Successfully extracted {} DLLs (parallel execution)",
+                dll_list.len()
+            ));
             dll_list
         }
         Err(e) => {
