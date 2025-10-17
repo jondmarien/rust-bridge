@@ -51,12 +51,14 @@ pub struct AnalyzerConfig {
 
 impl Default for AnalyzerConfig {
     fn default() -> Self {
-        let mut cache_config = CacheConfig::default();
-        cache_config.max_entries = 20; // Reasonable default for process dumps
-        cache_config.ttl_secs = 7200; // 2 hours
-        cache_config.persist_to_disk = false; // Disable disk persistence by default
-
-        AnalyzerConfig { cache_config }
+        AnalyzerConfig {
+            cache_config: CacheConfig {
+                max_entries: 20,              // Reasonable default for process dumps
+                ttl_secs: 7200,               // 2 hours
+                persist_to_disk: false,       // Disable disk persistence by default
+                ..Default::default()
+            },
+        }
     }
 }
 
