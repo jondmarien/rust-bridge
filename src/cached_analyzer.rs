@@ -53,9 +53,9 @@ impl Default for AnalyzerConfig {
     fn default() -> Self {
         AnalyzerConfig {
             cache_config: CacheConfig {
-                max_entries: 20,              // Reasonable default for process dumps
-                ttl_secs: 7200,               // 2 hours
-                persist_to_disk: false,       // Disable disk persistence by default
+                max_entries: 20,        // Reasonable default for process dumps
+                ttl_secs: 7200,         // 2 hours
+                persist_to_disk: false, // Disable disk persistence by default
                 ..Default::default()
             },
         }
