@@ -16,19 +16,18 @@
 //!
 //! ```no_run
 //! use rust_bridge::cache::{LruCache, CacheConfig};
-//! use rust_bridge::types::ProcessInfo;
 //!
 //! // Create cache with default settings
 //! let config = CacheConfig::default();
-//! let cache: LruCache<Vec<ProcessInfo>> = LruCache::new(config, "process_cache");
+//! let cache: LruCache<Vec<String>> = LruCache::new(config, "string_cache");
 //!
 //! // Cache some data
-//! let data = vec![/* ProcessInfo items */];
-//! cache.put("dump1".to_string(), data.clone(), "file_hash_1".to_string());
+//! let data = vec!["item1".to_string(), "item2".to_string()];
+//! cache.put("key1".to_string(), data.clone(), "file_hash_1".to_string());
 //!
 //! // Retrieve from cache
-//! if let Some(cached_data) = cache.get("dump1", "file_hash_1") {
-//!     println!("Found {} processes in cache", cached_data.len());
+//! if let Some(cached_data) = cache.get("key1", "file_hash_1") {
+//!     println!("Found {} items in cache", cached_data.len());
 //! }
 //! ```
 
@@ -171,13 +170,13 @@ pub struct CacheStats {
 ///
 /// Thread-safe cache implementation using Arc<Mutex<>> for concurrent access.
 /// Supports file-based cache invalidation via hash comparison.
-#[warn(dead_code)]
 pub struct LruCache<T: Clone + Serialize + for<'de> Deserialize<'de>> {
     /// Storage for cache entries (key -> entry)
     entries: Arc<Mutex<HashMap<String, CacheEntry<T>>>>,
     /// Configuration
     config: CacheConfig,
-    /// Type name for logging/identification
+    /// Type name for logging/identification (reserved for future use)
+    #[allow(dead_code)]
     type_name: String,
 }
 

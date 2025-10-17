@@ -16,6 +16,7 @@
 //! use rust_bridge::cached_analyzer::{CachedProcessAnalyzer, AnalyzerConfig};
 //! use rust_bridge::volatility::VolatilityContext;
 //!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = AnalyzerConfig::default();
 //! let analyzer = CachedProcessAnalyzer::new(config)?;
 //!
@@ -30,6 +31,8 @@
 //! let processes2 = analyzer.list_processes_cached(&context)?;
 //!
 //! assert_eq!(processes1.len(), processes2.len());
+//! # Ok(())
+//! # }
 //! ```
 
 use std::sync::Arc;

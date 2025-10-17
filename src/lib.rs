@@ -14,7 +14,7 @@ pub mod error; // Made public for tests
 mod process_analysis;
 mod python_manager;
 pub mod types;
-mod volatility; // Made public for tests
+pub mod volatility;
 
 pub use cached_analyzer::{AnalyzerConfig, CacheStatsCollection, CachedProcessAnalyzer};
 pub use error::{MemoryAnalysisError, MemoryAnalysisResult};
