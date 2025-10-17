@@ -237,27 +237,26 @@ mod tests {
     #[test]
     fn test_detect_file_change() -> Result<(), String> {
         let mut temp_file = NamedTempFile::new().map_err(|e| e.to_string())?;
+        let file_path = temp_file.path().to_path_buf();
         temp_file.write_all(b"test").map_err(|e| e.to_string())?;
+        temp_file.flush().map_err(|e| e.to_string())?;
 
         let monitor = CacheInvalidationMonitor::default();
-        monitor.watch_file(temp_file.path())?;
+        monitor.watch_file(&file_path)?;
 
         // Initially no change
-        let changed = monitor.check_file_changed(temp_file.path())?;
+        let changed = monitor.check_file_changed(&file_path)?;
         assert!(!changed);
 
-        // Modify file (need to close and reopen for reliable detection)
-        drop(temp_file);
+        // Modify file by writing to the same file handle
         std::thread::sleep(std::time::Duration::from_millis(100));
-
-        let mut temp_file = NamedTempFile::new().map_err(|e| e.to_string())?;
         temp_file
             .write_all(b"modified")
             .map_err(|e| e.to_string())?;
         temp_file.flush().map_err(|e| e.to_string())?;
 
         // Check again - should detect change
-        let changed = monitor.check_file_changed(temp_file.path())?;
+        let changed = monitor.check_file_changed(&file_path)?;
         assert!(changed);
 
         Ok(())
