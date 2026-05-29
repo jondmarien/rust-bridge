@@ -48,7 +48,10 @@ impl PythonManager {
             let project_root = manifest_dir.join("..");
 
             let candidates = [
-                project_root.join("volatility-env").join("Lib").join("site-packages"),
+                project_root
+                    .join("volatility-env")
+                    .join("Lib")
+                    .join("site-packages"),
                 project_root
                     .join("volatility-env")
                     .join("lib")
