@@ -44,15 +44,28 @@ impl PythonManager {
             let sys = py.import("sys").expect("Failed to import sys");
             let path_list = sys.getattr("path").expect("Failed to get sys.path");
 
-            // Add venv site-packages to sys.path
-            let manifest_dir = env!("CARGO_MANIFEST_DIR");
-            let venv_site_packages =
-                format!("{}\\..\\volatility-env\\Lib\\site-packages", manifest_dir);
+            let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let project_root = manifest_dir.join("..");
 
-            // Normalize the path
-            if let Ok(canonical) = std::path::Path::new(&venv_site_packages).canonicalize() {
-                if let Some(path_str) = canonical.to_str() {
-                    let _ = path_list.call_method1("insert", (0, path_str));
+            let candidates = [
+                project_root.join("volatility-env").join("Lib").join("site-packages"),
+                project_root
+                    .join("volatility-env")
+                    .join("lib")
+                    .join("python3.14")
+                    .join("site-packages"),
+                project_root
+                    .join("volatility-env")
+                    .join("lib")
+                    .join("python3.12")
+                    .join("site-packages"),
+            ];
+
+            for candidate in candidates {
+                if let Ok(canonical) = candidate.canonicalize() {
+                    if let Some(path_str) = canonical.to_str() {
+                        let _ = path_list.call_method1("insert", (0, path_str));
+                    }
                 }
             }
         });
@@ -125,7 +138,7 @@ mod tests {
     fn test_version_info() {
         let version = PythonManager::version_info().unwrap();
         assert_eq!(version.0, 3); // Python 3.x
-        assert!(version.1 >= 12); // At least 3.12
+        assert!(version.1 >= 12); // At least Python 3.12 (3.14 supported)
     }
 
     #[test]
@@ -149,6 +162,6 @@ mod tests {
 
         assert!(result.is_ok());
         let version_str = result.unwrap();
-        assert!(version_str.contains("3.12")); // Should be Python 3.12.x
+        assert!(version_str.contains("3.")); // Python 3.x from configured environment
     }
 }

@@ -127,10 +127,18 @@ pub extern "C" fn rust_bridge_check_volatility() -> i32 {
 /// Get version information as JSON string (FFI export)
 #[no_mangle]
 pub extern "C" fn rust_bridge_get_version() -> *mut c_char {
+    let python_version = PythonManager::version_info()
+        .map(|(major, minor, patch)| format!("{major}.{minor}.{patch}"))
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    let volatility_version = VolatilityAnalyzer::new()
+        .and_then(|analyzer| analyzer.version())
+        .unwrap_or_else(|_| "unknown".to_string());
+
     let version = VersionInfo {
         rust_bridge_version: env!("CARGO_PKG_VERSION").to_string(),
-        volatility_version: "2.26.2".to_string(),
-        python_version: "3.12.11".to_string(),
+        volatility_version,
+        python_version,
     };
 
     match serde_json::to_string(&version) {

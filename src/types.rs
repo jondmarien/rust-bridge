@@ -171,12 +171,12 @@ impl PyConverter {
         }
 
         // Try dict
-        if let Ok(dict) = py_obj.downcast::<PyDict>() {
+        if let Ok(dict) = py_obj.cast::<PyDict>() {
             return Self::dict_to_json(dict);
         }
 
         // Try list
-        if let Ok(list) = py_obj.downcast::<PyList>() {
+        if let Ok(list) = py_obj.cast::<PyList>() {
             return Self::list_to_json(list);
         }
 
@@ -323,8 +323,8 @@ mod tests {
     fn test_version_info_serialization() {
         let version = VersionInfo {
             rust_bridge_version: "0.1.0".to_string(),
-            volatility_version: "2.26.2".to_string(),
-            python_version: "3.12.11".to_string(),
+            volatility_version: "2.28.0".to_string(),
+            python_version: "3.14.0".to_string(),
         };
 
         let json = version.to_json();

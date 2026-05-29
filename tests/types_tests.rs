@@ -177,11 +177,11 @@ fn test_version_info() {
     let version = VersionInfo {
         rust_bridge_version: "0.1.0".to_string(),
         volatility_version: "3.2.26".to_string(),
-        python_version: "3.12.11".to_string(),
+        python_version: "3.14.0".to_string(),
     };
 
     assert_eq!(version.rust_bridge_version, "0.1.0");
-    assert_eq!(version.python_version, "3.12.11");
+    assert_eq!(version.python_version, "3.14.0");
 }
 
 #[test]

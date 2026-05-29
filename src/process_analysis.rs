@@ -134,7 +134,7 @@ results = run_pslist(r'{}')
 
             // Get results from globals (since that's where our script puts it)
             let results = globals.get_item("results")?;
-            let processes_list = results.downcast::<pyo3::types::PyList>()?;
+            let processes_list = results.cast::<pyo3::types::PyList>()?;
 
             // Extract process information from the treegrid rows
             let mut processes = Vec::new();
@@ -142,7 +142,7 @@ results = run_pslist(r'{}')
             for row in processes_list.iter() {
                 // Each row is a TreeNode object with a 'values' attribute (which is a list)
                 let node_values = row.getattr("values")?;
-                let values = node_values.downcast::<pyo3::types::PyList>()?;
+                let values = node_values.cast::<pyo3::types::PyList>()?;
 
                 // Expected columns: PID, PPID, ImageFileName, Offset(V), Threads, Handles, SessionId, Wow64, CreateTime, ExitTime
                 if values.len() >= 6 {
@@ -281,7 +281,7 @@ results = run_cmdline(r'{}')
 
             // Get results from globals
             let results = globals.get_item("results")?;
-            let cmdline_list = results.downcast::<pyo3::types::PyList>()?;
+            let cmdline_list = results.cast::<pyo3::types::PyList>()?;
 
             // Extract command line information from the treegrid rows
             let mut command_lines = Vec::new();
@@ -289,7 +289,7 @@ results = run_cmdline(r'{}')
             for row in cmdline_list.iter() {
                 // Each row is a TreeNode object with a 'values' attribute
                 let node_values = row.getattr("values")?;
-                let values = node_values.downcast::<pyo3::types::PyList>()?;
+                let values = node_values.cast::<pyo3::types::PyList>()?;
 
                 // Expected columns: PID, Process, Args
                 if values.len() >= 3 {
@@ -404,7 +404,7 @@ results = run_dlllist(r'{}', pid_filter)
 
             // Get results from globals
             let results = globals.get_item("results")?;
-            let dll_list = results.downcast::<pyo3::types::PyList>()?;
+            let dll_list = results.cast::<pyo3::types::PyList>()?;
 
             // Extract DLL information from the treegrid rows
             let mut dlls = Vec::new();
@@ -412,7 +412,7 @@ results = run_dlllist(r'{}', pid_filter)
             for row in dll_list.iter() {
                 // Each row is a TreeNode object with a 'values' attribute
                 let node_values = row.getattr("values")?;
-                let values = node_values.downcast::<pyo3::types::PyList>()?;
+                let values = node_values.cast::<pyo3::types::PyList>()?;
 
                 // Expected columns: PID, Process, Base, Size, Name, Path
                 if values.len() >= 6 {
@@ -529,7 +529,7 @@ results = run_netscan(r'{}')
 
             // Get results from globals
             let results = globals.get_item("results")?;
-            let netscan_list = results.downcast::<pyo3::types::PyList>()?;
+            let netscan_list = results.cast::<pyo3::types::PyList>()?;
 
             // Extract network connection information from the treegrid rows
             let mut connections = Vec::new();
@@ -537,7 +537,7 @@ results = run_netscan(r'{}')
             for row in netscan_list.iter() {
                 // Each row is a TreeNode object with a 'values' attribute
                 let node_values = row.getattr("values")?;
-                let values = node_values.downcast::<pyo3::types::PyList>()?;
+                let values = node_values.cast::<pyo3::types::PyList>()?;
 
                 // Expected columns: Offset, Proto, LocalAddr, LocalPort, ForeignAddr, ForeignPort, State, PID, Owner, Created
                 if values.len() >= 10 {
@@ -679,7 +679,7 @@ results = run_malfind(r'{}')
 
             // Get results from globals
             let results = globals.get_item("results")?;
-            let malfind_list = results.downcast::<pyo3::types::PyList>()?;
+            let malfind_list = results.cast::<pyo3::types::PyList>()?;
 
             // Extract malware detection information from the treegrid rows
             let mut detections = Vec::new();
@@ -687,7 +687,7 @@ results = run_malfind(r'{}')
             for row in malfind_list.iter() {
                 // Each row is a TreeNode object with a 'values' attribute
                 let node_values = row.getattr("values")?;
-                let values = node_values.downcast::<pyo3::types::PyList>()?;
+                let values = node_values.cast::<pyo3::types::PyList>()?;
 
                 // Expected columns: PID, Process, Start VPN, End VPN, Tag, Protection, Hexdump, Disasm
                 if values.len() >= 8 {
